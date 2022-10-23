@@ -16,16 +16,16 @@ typedef struct {
     double z;
 } screen_vertex;
 
-#define NUM_TRIANGLES 10000
+#define NUM_SCREEN_TRIANGLES 10000
 typedef struct {
     screen_vertex v[3];
     uint8_t r, g, b;
-} triangle_t;
-triangle_t triangles[NUM_TRIANGLES];
-int num_triangles = 0;
+} screen_triangle_t;
+screen_triangle_t screen_triangles[NUM_SCREEN_TRIANGLES];
+int num_screen_triangles = 0;
 
 // Any triangle can be decomposed into one or two triangles with a flat top or
-// bottom (a "span").
+// bottom (a "span"). A span is simple and fast to draw.
 #define NUM_SPANS 20000
 typedef struct {
     int16_t y_lo, y_hi;
@@ -34,7 +34,7 @@ typedef struct {
     double dx_dy_hi;
     double dz_dy_lo;
     double dz_dx_lo;
-    triangle_t *parent;
+    screen_triangle_t *parent;
 } span_t;
 span_t spans[NUM_SPANS];
 int num_spans;
@@ -46,7 +46,7 @@ int num_onespan_triangles;
 int num_twospan_triangles;
 int num_degenerate_triangles;
 
-void add_span(screen_vertex *a, screen_vertex *b, screen_vertex *c, screen_vertex *hi, screen_vertex *lo, triangle_t *parent) {
+void add_span(screen_vertex *a, screen_vertex *b, screen_vertex *c, screen_vertex *hi, screen_vertex *lo, screen_triangle_t *parent) {
     ASSERT((hi == NULL) != (lo == NULL));
     screen_vertex *hi_or_lo = (hi != NULL ? hi : lo);
     // Of the other two vertices, which is on the left, and which is on the
@@ -84,12 +84,11 @@ void add_span(screen_vertex *a, screen_vertex *b, screen_vertex *c, screen_verte
     ASSERT(++num_spans < NUM_SPANS);
 }
 
-int ray_plane(double *plane_coord, double *plane_n, double *ray_coord,
-    double *ray_v, double *intersection) {
+int ray_plane(double *plane_coord, double *plane_n, double *ray_coord, double *ray_v, double *intersection) {
     // See https://en.wikipedia.org/wiki/Line%E2%80%93plane_intersection,
     // "Algebraic form".
     double denom = DOT(ray_v, plane_n);
-    if (denom < EPSILON) {
+    if ((denom > -EPSILON) && (denom < EPSILON)) {
         // The ray and the plane are parallel.
         return 0;
     }
@@ -122,10 +121,14 @@ void rotate(double *in, double yaw, double pitch, double roll, double *out) {
       + (in[2] * cos(pitch) * cos(yaw));
 }
 
+double old_t = 0;
 double time_now(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + (ts.tv_nsec / 1.0e9);
+    double t = ts.tv_sec + (ts.tv_nsec / 1.0e9);
+    ASSERT(t > old_t);
+    old_t = t;
+    return t;
 }
 
 #define MAX_VERTS 10000
@@ -215,13 +218,15 @@ int main(void) {
         }
         frames_since++;
 
+        // The camera is a set of three orthogonal vectors forward, up, and
+        // right.
         double forward[3] = {0, 0, 1};
+        double up[3] = {0, 1, 0};
+        double right[3] = {1, 0, 0};
         double camera_fwd[3];
         rotate(forward, camera_yaw, camera_pitch, camera_roll, camera_fwd);
-        double up[3] = {0, 1, 0};
         double camera_up[3];
         rotate(up, camera_yaw, camera_pitch, camera_roll, camera_up);
-        double right[3] = {1, 0, 0};
         double camera_right[3];
         rotate(right, camera_yaw, camera_pitch, camera_roll, camera_right);
 
@@ -285,12 +290,13 @@ int main(void) {
         } else {
             // Rotate the camera around the origin.
             double now = time_now();
-            camera_pos[0] = 10 * sin(5 * now / (2 * M_PI));
+            double theta = 0.25 * now;
+            camera_pos[0] = 10. * sin(theta);
             camera_pos[1] = 0;
-            camera_pos[2] = 10 * cos(5 * now / (2 * M_PI));
+            camera_pos[2] = 10. * cos(theta);
 
             // Point the camera at the origin.
-            camera_yaw = (2 * M_PI) - fmod(M_PI + (5 * now / (2 * M_PI)), 2 * M_PI);
+            camera_yaw = M_PI - theta;
             camera_pitch = 0;
             camera_roll = M_PI;
         }
@@ -305,23 +311,174 @@ int main(void) {
             }
         }
 
-        num_triangles = 0;
-        for (int i = 0; i < n_tris; i++) {
-            int projectible = 1;
-            for (int j = 0; j < 3; j++) {
-                double v[3] = {
-                    verts[tris[i][j]][0],
-                    verts[tris[i][j]][1],
-                    verts[tris[i][j]][2]
-                };
+        // The screen exists on a plane "in front of" the camera.
+        double screen_center[3] = {
+            camera_pos[0] + camera_fwd[0],
+            camera_pos[1] + camera_fwd[1],
+            camera_pos[2] + camera_fwd[2]
+        };
 
-                // Project into screen space: draw a ray from the vertex to the
-                // camera, intersecting with a plane (the screen).
-                double screen_center[3] = {
-                    camera_pos[0] + camera_fwd[0],
-                    camera_pos[1] + camera_fwd[1],
-                    camera_pos[2] + camera_fwd[2]
+        int n_inside_0_count = 0, n_inside_1_count = 0, n_inside_2_count = 0, n_inside_3_count = 0;
+
+        num_screen_triangles = 0;
+        for (int i = 0; i < n_tris; i++) {
+            // Turn each arbitrary triangle into triangles suitable for
+            // rendering, by clipping away the parts that cannot be correctly
+            // rendered.
+            double triangle[3][3];
+            int n_inside = 0, inside[3],
+                n_outside = 0, outside[3];
+            for (int j = 0; j < 3; j++) {
+                triangle[j][0] = verts[tris[i][j]][0];
+                triangle[j][1] = verts[tris[i][j]][1];
+                triangle[j][2] = verts[tris[i][j]][2];
+
+                // Calculate signed distance to figure out which side of the
+                // screen plane the vertex is on.
+                double screen_to_v[3] = {
+                    triangle[j][0] - screen_center[0],
+                    triangle[j][1] - screen_center[1],
+                    triangle[j][2] - screen_center[2],
                 };
+                double d = DOT(screen_to_v, camera_fwd);
+                if (d < 0) {
+                    inside[n_inside++] = j;
+                    ASSERT(n_inside <= 3);
+                } else {
+                    outside[n_outside++] = j;
+                    ASSERT(n_outside <= 3);
+                }
+            }
+
+            int n_clipped_triangles = 0;
+            double clipped_triangles[2][3][3];
+            if (n_inside == 0) {
+                // This triangle is fine as-is.
+                n_clipped_triangles = 1;
+                memcpy(clipped_triangles[0][0], triangle[0], sizeof(double[3]));
+                memcpy(clipped_triangles[0][1], triangle[1], sizeof(double[3]));
+                memcpy(clipped_triangles[0][2], triangle[2], sizeof(double[3]));
+                n_inside_0_count++;
+            } else if (n_inside == 1) {
+                ASSERT(n_outside == 2);
+                // If one point is inside (v3), then when we clip the triangle
+                // it becomes a quadrilateral. The quadrilateral has two of the
+                // original vertices, and an additional 2 vertices (named u1,
+                // u2) at the point where (v3, v1) and (v3, v2) intersect the
+                // screen plane.
+                double v3[3];
+                memcpy(v3, triangle[inside[0]], sizeof(double[3]));
+                double v1[3];
+                memcpy(v1, triangle[outside[0]], sizeof(double[3]));
+                double v1_to_v3[3] = {v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]};
+                double u1[3];
+                // v1 and v3 are on opposite sides of the camera plane, so
+                // v3-v1 and the camera plane cannot be parallel.
+                ASSERT(ray_plane(screen_center, camera_fwd, v1, v1_to_v3, u1));
+                double v2[3];
+                memcpy(v2, triangle[outside[1]], sizeof(double[3]));
+                double v2_to_v3[3] = {v3[0] - v2[0], v3[1] - v2[1], v3[2] - v2[2]};
+                double u2[3];
+                // Ditto, see above.
+                ASSERT(ray_plane(screen_center, camera_fwd, v2, v2_to_v3, u2));
+                // We can't render a quadrilateral, but we can split it into
+                // two triangles. Since we know that the perimeter of the
+                // quadrilateral is formed by visiting v1, v2, u2, u1 in that
+                // order, we know that we can form two triangles (v1, v2, u2)
+                // and (u2, u1, v1).
+                n_clipped_triangles = 2;
+                memcpy(clipped_triangles[0][0], v1, sizeof(double[3]));
+                memcpy(clipped_triangles[0][1], v2, sizeof(double[3]));
+                memcpy(clipped_triangles[0][2], u2, sizeof(double[3]));
+                memcpy(clipped_triangles[1][0], u2, sizeof(double[3]));
+                memcpy(clipped_triangles[1][1], u1, sizeof(double[3]));
+                memcpy(clipped_triangles[1][2], v1, sizeof(double[3]));
+                n_inside_1_count++;
+            } else if (n_inside == 2) {
+                ASSERT(n_outside == 1);
+                // if two points inside (v1, v2), then make one triangle (v3, u1, u2)
+                double v3[3];
+                memcpy(v3, triangle[outside[0]], sizeof(double[3]));
+                double v1[3];
+                memcpy(v1, triangle[inside[0]], sizeof(double[3]));
+                double v1_to_v3[3] = {v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]};
+                double u1[3];
+                // v1 and v3 are on opposite sides of the camera plane, so
+                // v3-v1 and the camera plane cannot be parallel.
+                ASSERT(ray_plane(screen_center, camera_fwd, v1, v1_to_v3, u1));
+                double v2[3];
+                memcpy(v2, triangle[inside[1]], sizeof(double[3]));
+                double v2_to_v3[3] = {v3[0] - v2[0], v3[1] - v2[1], v3[2] - v2[2]};
+                double u2[3];
+                // Ditto, see above.
+                ASSERT(ray_plane(screen_center, camera_fwd, v2, v2_to_v3, u2));
+                n_clipped_triangles = 1;
+                memcpy(clipped_triangles[0][0], v3, sizeof(double[3]));
+                memcpy(clipped_triangles[0][1], u1, sizeof(double[3]));
+                memcpy(clipped_triangles[0][2], u2, sizeof(double[3]));
+                n_inside_2_count++;
+            } else if (n_inside == 3) {
+                // Just don't render this triangle.
+                ASSERT(n_outside == 0);
+                n_inside_3_count++;
+            } else {
+                ASSERT(0);
+            }
+            ASSERT((n_clipped_triangles >= 0) && (n_clipped_triangles <= 2));
+
+                // Anything on the same side of the screen plane is the camera is "inside the camera".
+                //We can't render (partially or
+                // completely) inside objects correctly, and we have to do something about it. Example:
+                
+                    /*
+                              v1 . . . . . . . v2
+                               .               .
+                                .             .
+                    _*___________.___________.____ camera plane
+                                  .         .
+                                   .       .
+                           \cam/    .     .
+                                     .   .
+                                      . .
+                                       v3
+
+                    in this case, cam->v3 does intersect the plane, but the
+                    intersection point is to the left (see *), which results in
+                    an unintuitive and weird render, given that the other
+                    vertices of the triangle will be projected onto the right of the screen.
+
+                    however, not rendering any part of the triangle would also
+                    look bad. to make this triangle renderable, we can remove the part of
+                    the triangle that won't render properly, which in this case
+                    results in a quadrilateral. We can split it into two
+                    nonoverlapping triangles.
+
+                              v1 . . . . . . . v2
+                               .'  ,           .
+                                .     ' .     .
+                    _____________. . . . . .'.____ camera plane
+
+
+                           \cam/
+
+                    there are three cases in total for how to do this culling,
+                    depending on how many vertices (in this case, 1) are
+                    "inside".
+                    */
+
+                // side_of_plane(screen_center, camera_fwd, point) is negative
+                // if point is between the camera and the screen plane
+                // ("inside" the camera). 
+
+            // Project each clipped triangle into screen space.
+            for (int j = 0; j < n_clipped_triangles; j++) {
+            for (int k = 0; k < 3; k++) {
+                double v[3];
+                memcpy(v, clipped_triangles[j][k], sizeof(double[3]));
+
+                // Project this vertex into screen space: draw a ray from the
+                // vertex to the camera, intersecting with a plane (the
+                // screen).
                 double camera_pos_to_v[3] = {
                     v[0] - camera_pos[0],
                     v[1] - camera_pos[1],
@@ -336,31 +493,32 @@ int main(void) {
                         poi[2] - screen_center[2]
                     };
                     // Put this vertex into screenspace.
-                    //double plane_w = 2 * 1 /* camera_fwd is unit */ * tan(camera_fov / 2);
-                    double screen_w = window_surface->w, screen_h = window_surface->h;
-                    //double plane_h = plane_w * (screen_h / screen_w);
-                    triangles[num_triangles].v[j].x =
-                        (screen_w / 2) + (DOT(poi_rel, camera_right) * screen_w);
-                    triangles[num_triangles].v[j].y =
-                        (screen_h / 2) + (DOT(poi_rel, camera_up) * screen_h);
+                    double half_screen_w = window_surface->w / 2, 
+                           half_screen_h = window_surface->h / 2;
+                    screen_triangles[num_screen_triangles].v[k].x = half_screen_w + (DOT(poi_rel, camera_right) * half_screen_w);
+                    screen_triangles[num_screen_triangles].v[k].y = half_screen_h + (DOT(poi_rel, camera_up) * half_screen_h);
                     // If the vertex is behind the camera, then the distance
-                    // should be negative.
-                    triangles[num_triangles].v[j].z = 
-                          DOT(camera_pos_to_v, camera_fwd) >= 0
-                        ? MAGNITUDE(camera_pos_to_v)
-                        : -MAGNITUDE(camera_pos_to_v);
+                    // should be negative.  i dont think this is right TODO maybe remove this assert
+                    double z = DOT(camera_pos_to_v, camera_fwd);
+                    ASSERT(z >= 0);
+                    screen_triangles[num_screen_triangles].v[k].z = z;
+
+                    // For debugging purposes, give every triangle a different color.
+                    screen_triangles[num_screen_triangles].r = (i * 13) % 0xff;
+                    screen_triangles[num_screen_triangles].g = (i * 101) % 0xff;
+                    screen_triangles[num_screen_triangles].b = (i * 211) % 0xff;
                 } else {
-                    projectible = 0;
+                    // If the ray doesn't project onto the screen, it's because
+                    // the ray is parallel to the screen, so it will be
+                    // perpendicular to the screen normal.
+                    ASSERT(0);
                 }
             }
-            if (projectible) {
-                triangles[num_triangles].r = (i * 13) % 0xff;
-                triangles[num_triangles].g = (i * 101) % 0xff;
-                triangles[num_triangles].b = (i * 211) % 0xff;
-                ASSERT(++num_triangles < NUM_TRIANGLES);
+            ASSERT(++num_screen_triangles < NUM_SCREEN_TRIANGLES);
             }
         }
 
+        // Turn each screen triangle into one or two spans.
         num_spans = 0;
         num_pointup_spans = 0;
         num_pointdown_spans = 0;
@@ -368,10 +526,10 @@ int main(void) {
         num_onespan_triangles = 0;
         num_twospan_triangles = 0;
         num_degenerate_triangles = 0;
-        for (int i = 0; i < num_triangles; i++) {
-            screen_vertex *a = &triangles[i].v[0];
-            screen_vertex *b = &triangles[i].v[1];
-            screen_vertex *c = &triangles[i].v[2];
+        for (int i = 0; i < num_screen_triangles; i++) {
+            screen_vertex *a = &screen_triangles[i].v[0];
+            screen_vertex *b = &screen_triangles[i].v[1];
+            screen_vertex *c = &screen_triangles[i].v[2];
             // Look for (one) top ("hi") vertex.
             screen_vertex *hi = NULL;
             if ((a->y > b->y) && (a->y > c->y)) {
@@ -400,9 +558,9 @@ int main(void) {
             // span.
             if ((hi == NULL) != (lo == NULL)) {
                 if (hi != NULL) {
-                    add_span(a, b, c, hi, NULL, &triangles[i]);
+                    add_span(a, b, c, hi, NULL, &screen_triangles[i]);
                 } else if (lo != NULL) {
-                    add_span(a, b, c, NULL, lo, &triangles[i]);
+                    add_span(a, b, c, NULL, lo, &screen_triangles[i]);
                 } else ASSERT(0);
                 num_onespan_triangles++;
             }
@@ -424,8 +582,8 @@ int main(void) {
                     .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
                 };
                 // Create two spans!
-                add_span(hi, mid, &split, hi, NULL, &triangles[i]);
-                add_span(lo, mid, &split, NULL, lo, &triangles[i]);
+                add_span(hi, mid, &split, hi, NULL, &screen_triangles[i]);
+                add_span(lo, mid, &split, NULL, lo, &screen_triangles[i]);
                 num_twospan_triangles++;
             }
         }
@@ -438,12 +596,14 @@ int main(void) {
             printf("forward: %f, %f, %f .. %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], MAGNITUDE(camera_fwd));
             printf("up: %f, %f, %f .. %f\n", camera_up[0], camera_up[1], camera_up[2], MAGNITUDE(camera_up));
             printf("right: %f, %f, %f .. %f\n", camera_right[0], camera_right[1], camera_right[2], MAGNITUDE(camera_right));
-            printf("%i triangles (%i onespans, %i twospans, %i degenerates)\n",
-                num_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles);
+            printf("0 = %i, 1 = %i, 2 = %i, 3 = %i\n", n_inside_0_count, n_inside_1_count, n_inside_2_count, n_inside_3_count);
+            printf("%i screen triangles (%i onespans, %i twospans, %i degenerates)\n",
+                num_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles);
             printf("%i spans (%i pointups, %i pointdowns, %i degenerates)\n",
                 num_spans, num_pointup_spans, num_pointdown_spans, num_degenerate_spans);
         }
 
+        // Draw all spans to the screen, respecting the z-buffer.
         double min_z = DBL_MAX;
         double max_z = -DBL_MAX;
         for (int y = 0; y < window_surface->h; y++) {
