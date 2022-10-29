@@ -6,8 +6,17 @@
 #include "common.h"
 
 #define EPSILON 1e-6
-#define DOT(u, v) ((u[0] * v[0]) + (u[1] * v[1]) + (u[2] * v[2]))
 #define MAGNITUDE(v) sqrt(pow(v[0], 2) + pow(v[1], 2) + pow(v[2], 2))
+
+double dot(double *a, double *b) {
+    return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+}
+
+void cross(double *a, double *b, double *out) {
+    out[0] = (a[1] * b[2]) - (a[2] * b[1]);
+    out[1] = (a[2] * b[0]) - (a[0] * b[2]);
+    out[2] = (a[0] * b[1]) - (a[1] * b[0]);
+}
 
 // Triangles in screen space, the visible area of which is (0, 0) (screen
 // width, screen height). The Z-value is used only to populate the Z-buffer.
@@ -87,7 +96,7 @@ void add_span(screen_vertex *a, screen_vertex *b, screen_vertex *c, screen_verte
 int ray_plane(double *plane_coord, double *plane_n, double *ray_coord, double *ray_v, double *intersection) {
     // See https://en.wikipedia.org/wiki/Line%E2%80%93plane_intersection,
     // "Algebraic form".
-    double denom = DOT(ray_v, plane_n);
+    double denom = dot(ray_v, plane_n);
     if ((denom > -EPSILON) && (denom < EPSILON)) {
         // The ray and the plane are parallel.
         return 0;
@@ -97,7 +106,7 @@ int ray_plane(double *plane_coord, double *plane_n, double *ray_coord, double *r
         plane_coord[1] - ray_coord[1],
         plane_coord[2] - ray_coord[2]
     };
-    double d = DOT(val, plane_n) / denom;
+    double d = dot(val, plane_n) / denom;
     intersection[0] = ray_coord[0] + (ray_v[0] * d);
     intersection[1] = ray_coord[1] + (ray_v[1] * d);
     intersection[2] = ray_coord[2] + (ray_v[2] * d);
@@ -105,20 +114,47 @@ int ray_plane(double *plane_coord, double *plane_n, double *ray_coord, double *r
 }
 
 void rotate(double *in, double yaw, double pitch, double roll, double *out) {
-    // 3x3 rotation matrix for yaw, pitch, and roll, yoinked from:
-    // https://en.wikipedia.org/wiki/Rotation_formalisms_in_three_dimensions
-    out[0] =
-        (in[0] * cos(yaw) * cos(roll))
-      + (in[1] * ((cos(roll) * sin(pitch) * sin(yaw)) - (sin(roll) * cos(pitch))))
-      + (in[2] * ((cos(pitch) * sin(yaw) * cos(roll)) + (sin(pitch) * sin(roll))));
-    out[1] =
-        (in[0] * sin(roll) * cos(yaw))
-      + (in[1] * ((sin(pitch) * sin(yaw) * sin(roll)) + (cos(pitch) * cos(roll))))
-      + (in[2] * ((sin(yaw) * sin(roll) * cos(pitch)) - (cos(roll) * sin(pitch))));
-    out[2] =
-        (in[0] * -sin(yaw))
-      + (in[1] * cos(yaw) * sin(pitch))
-      + (in[2] * cos(pitch) * cos(yaw));
+    // Decomposed intrinsic rotations, borrowed from:
+    // https://danceswithcode.net/engineeringnotes/rotations_in_3d/rotations_in_3d_part1.html
+    double x = in[0],
+           y = in[1],
+           z = in[2];
+    double x0, y0, z0;
+    // roll
+    x0 = x; y0 = y; z0 = z;
+    x = x0;
+    y = (y0 * cos(roll)) - (z0 * sin(roll));
+    z = (y0 * sin(roll)) + (z0 * cos(roll));
+    // pitch
+    x0 = x; y0 = y; z0 = z;
+    x = (x0 * cos(pitch)) + (z0 * sin(pitch));
+    y = y0;
+    z = -(x0 * sin(pitch)) + (z0 * cos(pitch));
+    // yaw
+    x0 = x; y0 = y; z0 = z;
+    x = (x0 * cos(yaw)) - (y0 * sin(yaw));
+    y = (x0 * sin(yaw)) + (y0 * cos(yaw));
+    z = z0;
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+}
+
+void rodrigues(double v[3], double k[3], double theta) {
+    double c[3];
+    cross(k, v, c);
+    v[0] = (v[0] * cos(theta)) + (c[0] * sin(theta)) + (k[0] * dot(k, v) * (1 - cos(theta)));
+    v[1] = (v[1] * cos(theta)) + (c[1] * sin(theta)) + (k[1] * dot(k, v) * (1 - cos(theta)));
+    v[2] = (v[2] * cos(theta)) + (c[2] * sin(theta)) + (k[2] * dot(k, v) * (1 - cos(theta)));
+}
+
+void rotate_like_a_plane(double camera_fwd[3], double roll, double camera_left[3], double pitch, double camera_up[3], double yaw) {
+    rodrigues(camera_left, camera_fwd, roll);
+    rodrigues(camera_up, camera_fwd, roll);
+    rodrigues(camera_fwd, camera_left, pitch);
+    rodrigues(camera_up, camera_left, pitch);
+    rodrigues(camera_fwd, camera_up, yaw);
+    rodrigues(camera_left, camera_up, yaw);
 }
 
 double old_t = 0;
@@ -201,10 +237,16 @@ int main(void) {
     int show_depth = 0;
     int free_flight = 0;
 
-    double camera_pos[3] = {0, 0, -10};
-    double camera_yaw = 0;
-    double camera_pitch = 0;
-    double camera_roll = 0;
+    double camera_pos[3] = {-10, 0, 0};
+    double camera_fwd_reset[3] = {1, 0, 0};
+    double camera_fwd[3];
+    memcpy(camera_fwd, camera_fwd_reset, sizeof(camera_fwd));
+    double camera_left_reset[3] = {0, -1, 0};
+    double camera_left[3];
+    memcpy(camera_left, camera_left_reset, sizeof(camera_left));
+    double camera_up_reset[3] = {0, 0, 1};
+    double camera_up[3];
+    memcpy(camera_up, camera_up_reset, sizeof(camera_up));
     double since = time_now();
     int frames_since = 0;
 
@@ -217,18 +259,6 @@ int main(void) {
             frames_since = 0;
         }
         frames_since++;
-
-        // The camera is a set of three orthogonal vectors forward, up, and
-        // right.
-        double forward[3] = {0, 0, 1};
-        double up[3] = {0, 1, 0};
-        double right[3] = {1, 0, 0};
-        double camera_fwd[3];
-        rotate(forward, camera_yaw, camera_pitch, camera_roll, camera_fwd);
-        double camera_up[3];
-        rotate(up, camera_yaw, camera_pitch, camera_roll, camera_up);
-        double camera_right[3];
-        rotate(right, camera_yaw, camera_pitch, camera_roll, camera_right);
 
         SDL_Surface *window_surface = SDL_GetWindowSurface(sdl_window);
         if (depth_buffer == NULL) {
@@ -265,18 +295,19 @@ int main(void) {
 
         const uint8_t *keystate = SDL_GetKeyboardState(NULL);
         if (free_flight) {
+            double yaw = 0, pitch = 0, roll = 0;
             if (keystate[SDL_SCANCODE_LEFT])
-                camera_yaw -= 0.01;
+                yaw -= 0.01;
             if (keystate[SDL_SCANCODE_RIGHT])
-                camera_yaw += 0.01;
+                yaw += 0.01;
             if (keystate[SDL_SCANCODE_UP])
-                camera_pitch += 0.01;
+                pitch += 0.01;
             if (keystate[SDL_SCANCODE_DOWN])
-                camera_pitch -= 0.01;
+                pitch -= 0.01;
             if (keystate[SDL_SCANCODE_Z])
-                camera_roll -= 0.01;
+                roll -= 0.01;
             if (keystate[SDL_SCANCODE_X])
-                camera_roll += 0.01;
+                roll += 0.01;
             if (keystate[SDL_SCANCODE_A]) {
                 camera_pos[0] -= camera_fwd[0] * 0.1;
                 camera_pos[1] -= camera_fwd[1] * 0.1;
@@ -287,18 +318,28 @@ int main(void) {
                 camera_pos[1] += camera_fwd[1] * 0.1;
                 camera_pos[2] += camera_fwd[2] * 0.1;
             }
+
+            // Note: rotating the existing camera_{fwd,left,up} instead of
+            // starting from unit vectors (see below).
+            rotate_like_a_plane(camera_fwd, roll, camera_left, pitch, camera_up, yaw);
         } else {
             // Rotate the camera around the origin.
             double now = time_now();
             double theta = 0.25 * now;
-            camera_pos[0] = 10. * sin(theta);
-            camera_pos[1] = 0;
-            camera_pos[2] = 10. * cos(theta);
+            camera_pos[0] = 10. * cos(theta);
+            camera_pos[1] = 10. * sin(theta);
+            camera_pos[2] = 0;
 
             // Point the camera at the origin.
-            camera_yaw = M_PI - theta;
-            camera_pitch = 0;
-            camera_roll = M_PI;
+            double yaw = M_PI + theta;
+            double pitch = 0;
+            double roll = 0; //M_PI / 2;//0;
+            memcpy(camera_fwd, camera_fwd_reset, sizeof(camera_fwd));
+            memcpy(camera_left, camera_left_reset, sizeof(camera_left));
+            memcpy(camera_up, camera_up_reset, sizeof(camera_up));
+            rotate(camera_fwd, yaw, pitch, roll, camera_fwd);
+            rotate(camera_up, yaw, pitch, roll, camera_up);
+            rotate(camera_left, yaw, pitch, roll, camera_left);
         }
 
         // TODO clear the screen: shouldn't have to do this out of band
@@ -340,7 +381,7 @@ int main(void) {
                     triangle[j][1] - screen_center[1],
                     triangle[j][2] - screen_center[2],
                 };
-                double d = DOT(screen_to_v, camera_fwd);
+                double d = dot(screen_to_v, camera_fwd);
                 if (d < 0) {
                     inside[n_inside++] = j;
                     ASSERT(n_inside <= 3);
@@ -495,11 +536,11 @@ int main(void) {
                     // Put this vertex into screenspace.
                     double half_screen_w = window_surface->w / 2, 
                            half_screen_h = window_surface->h / 2;
-                    screen_triangles[num_screen_triangles].v[k].x = half_screen_w + (DOT(poi_rel, camera_right) * half_screen_w);
-                    screen_triangles[num_screen_triangles].v[k].y = half_screen_h + (DOT(poi_rel, camera_up) * half_screen_h);
+                    screen_triangles[num_screen_triangles].v[k].x = half_screen_w - (dot(poi_rel, camera_left) * half_screen_w);
+                    screen_triangles[num_screen_triangles].v[k].y = half_screen_h + (dot(poi_rel, camera_up) * half_screen_h);
                     // If the vertex is behind the camera, then the distance
                     // should be negative.  i dont think this is right TODO maybe remove this assert
-                    double z = DOT(camera_pos_to_v, camera_fwd);
+                    double z = dot(camera_pos_to_v, camera_fwd);
                     ASSERT(z >= 0);
                     screen_triangles[num_screen_triangles].v[k].z = z;
 
@@ -591,11 +632,10 @@ int main(void) {
         if (!did_print) {
             did_print = 1;
             printf("******\n");
-            printf("yaw = %f, pitch = %f, roll = %f\n", camera_yaw, camera_pitch, camera_roll);
             printf("camera: %f, %f, %f\n", camera_pos[0], camera_pos[1], camera_pos[2]);
             printf("forward: %f, %f, %f .. %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], MAGNITUDE(camera_fwd));
+            printf("left: %f, %f, %f .. %f\n", camera_left[0], camera_left[1], camera_left[2], MAGNITUDE(camera_left));
             printf("up: %f, %f, %f .. %f\n", camera_up[0], camera_up[1], camera_up[2], MAGNITUDE(camera_up));
-            printf("right: %f, %f, %f .. %f\n", camera_right[0], camera_right[1], camera_right[2], MAGNITUDE(camera_right));
             printf("0 = %i, 1 = %i, 2 = %i, 3 = %i\n", n_inside_0_count, n_inside_1_count, n_inside_2_count, n_inside_3_count);
             printf("%i screen triangles (%i onespans, %i twospans, %i degenerates)\n",
                 num_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles);
