@@ -251,18 +251,19 @@ int main(void) {
     double camera_up_reset[3] = {0, 0, 1};
     double camera_up[3];
     memcpy(camera_up, camera_up_reset, sizeof(camera_up));
-    double since = time_now();
-    int frames_since = 0;
+    double start_time = time_now();
+    int frames = 0;
+    const int frames_chunk = 10;
+    double frames_since_time = time_now();
 
     int do_quit = 0;
-    while (!do_quit) {
-        double now = time_now();
-        if (now - since >= 1) {
-            printf("fps: %f\n", frames_since / (now - since));
-            since = now;
-            frames_since = 0;
+    while (!do_quit && frames < 200) {
+        if (frames % frames_chunk == 0) {
+            double elapsed = time_now() - frames_since_time;
+            printf("frames %i to %i: %f seconds, %f fps\n", frames - frames_chunk, frames, elapsed, frames_chunk / elapsed);
+            frames_since_time = time_now();
         }
-        frames_since++;
+        frames++;
 
         SDL_Surface *window_surface = SDL_GetWindowSurface(sdl_window);
         if (depth_buffer == NULL) {
@@ -292,6 +293,7 @@ int main(void) {
         }
 
         // Rotate the camera around the origin.
+        double now = frames / 10.;
         double theta = 0.25 * now;
         double scale = 3 + (.5 * cos(2 * now));
         camera_pos[0] = (2. * cos(theta)) * scale;
@@ -306,7 +308,6 @@ int main(void) {
         camera_fwd[0] = camera_fwd[0] / l;
         camera_fwd[1] = camera_fwd[1] / l;
         camera_fwd[2] = camera_fwd[2] / l;
-        printf("%f, %f, %f: %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], len(camera_fwd));
         camera_up[0] = 0;
         camera_up[1] = 0;
         camera_up[2] = 1;
@@ -656,4 +657,7 @@ int main(void) {
 
         SDL_UpdateWindowSurface(sdl_window);
     }
+
+    double elapsed = time_now() - start_time;
+    printf("%i frames in %f seconds: %f fps\n", frames, elapsed, frames / elapsed);
 }
