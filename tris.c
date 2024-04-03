@@ -6,7 +6,10 @@
 #include "common.h"
 
 #define EPSILON 1e-6
-#define MAGNITUDE(v) sqrt(pow(v[0], 2) + pow(v[1], 2) + pow(v[2], 2))
+
+double len(double *v) {
+    return sqrt(pow(v[0], 2) + pow(v[1], 2) + pow(v[2], 2));
+}
 
 double dot(double *a, double *b) {
     return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
@@ -174,7 +177,7 @@ int n_verts = 0;
 int tris[MAX_TRIS][3];
 int n_tris = 0;
 
-void load_obj(char *fn, double scale) {
+void load_obj(char *fn, double scale, double yaw, double pitch, double roll) {
     FILE *fp = fopen(fn, "r");
     ASSERT(fp != NULL);
     char line[128];
@@ -197,6 +200,9 @@ void load_obj(char *fn, double scale) {
                 ASSERT(off < 4);
                 ASSERT(sscanf(token, "%lf", &verts[n_verts][off]) == 1);
                 verts[n_verts][off] *= scale;
+                if (off == 2) {
+                    rotate(verts[n_verts], yaw, pitch, roll, verts[n_verts]);
+                }
                 off++;
                 break;
             case 'f':
@@ -224,7 +230,7 @@ void load_obj(char *fn, double scale) {
 }
 
 int main(void) {
-    load_obj("cow-nonormals.obj", 1);
+    load_obj("cow-nonormals.obj", 1, 0, 0, -M_PI / 2);
 
     ASSERT(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == 0);
     SDL_Window *sdl_window = SDL_CreateWindow("aspng", 0, 0, 100, 100, SDL_WINDOW_RESIZABLE);
@@ -287,20 +293,24 @@ int main(void) {
 
         // Rotate the camera around the origin.
         double theta = 0.25 * now;
-        camera_pos[0] = 10. * cos(theta);
-        camera_pos[1] = 10. * sin(theta);
+        double scale = 3 + (.5 * cos(2 * now));
+        camera_pos[0] = (2. * cos(theta)) * scale;
+        camera_pos[1] = (2. * sin(theta)) * scale;
         camera_pos[2] = 0;
 
         // Point the camera at the origin.
-        double yaw = M_PI + theta;
-        double pitch = 0;
-        double roll = 0; //M_PI / 2;//0;
-        memcpy(camera_fwd, camera_fwd_reset, sizeof(camera_fwd));
-        memcpy(camera_left, camera_left_reset, sizeof(camera_left));
-        memcpy(camera_up, camera_up_reset, sizeof(camera_up));
-        rotate(camera_fwd, yaw, pitch, roll, camera_fwd);
-        rotate(camera_up, yaw, pitch, roll, camera_up);
-        rotate(camera_left, yaw, pitch, roll, camera_left);
+        camera_fwd[0] = 0 - camera_pos[0];
+        camera_fwd[1] = 0 - camera_pos[1];
+        camera_fwd[2] = 0 - camera_pos[2];
+        double l = len(camera_fwd);
+        camera_fwd[0] = camera_fwd[0] / l;
+        camera_fwd[1] = camera_fwd[1] / l;
+        camera_fwd[2] = camera_fwd[2] / l;
+        printf("%f, %f, %f: %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], len(camera_fwd));
+        camera_up[0] = 0;
+        camera_up[1] = 0;
+        camera_up[2] = 1;
+        cross(camera_fwd, camera_up, camera_left);
 
         // TODO clear the screen: shouldn't have to do this out of band
         for (int x = 0; x < window_surface->w; x++) {
@@ -593,9 +603,9 @@ int main(void) {
             did_print = 1;
             printf("******\n");
             printf("camera: %f, %f, %f\n", camera_pos[0], camera_pos[1], camera_pos[2]);
-            printf("forward: %f, %f, %f .. %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], MAGNITUDE(camera_fwd));
-            printf("left: %f, %f, %f .. %f\n", camera_left[0], camera_left[1], camera_left[2], MAGNITUDE(camera_left));
-            printf("up: %f, %f, %f .. %f\n", camera_up[0], camera_up[1], camera_up[2], MAGNITUDE(camera_up));
+            printf("forward: %f, %f, %f .. %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], len(camera_fwd));
+            printf("left: %f, %f, %f .. %f\n", camera_left[0], camera_left[1], camera_left[2], len(camera_left));
+            printf("up: %f, %f, %f .. %f\n", camera_up[0], camera_up[1], camera_up[2], len(camera_up));
             printf("0 = %i, 1 = %i, 2 = %i, 3 = %i\n", n_inside_0_count, n_inside_1_count, n_inside_2_count, n_inside_3_count);
             printf("%i screen triangles (%i onespans, %i twospans, %i degenerates)\n",
                 num_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles);
