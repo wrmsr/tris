@@ -10,8 +10,6 @@ bin/tris: obj/tris.o | bin
 	stat -c %s $@
 	strip --strip-unneeded $@
 	stat -c %s $@
-	upx --best $@
-	stat -c %s $@
 
 obj:
 	mkdir obj

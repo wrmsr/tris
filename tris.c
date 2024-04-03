@@ -234,8 +234,6 @@ int main(void) {
 
     int did_print = 0;
     double *depth_buffer = NULL;
-    int show_depth = 0;
-    int free_flight = 0;
 
     double camera_pos[3] = {-10, 0, 0};
     double camera_fwd_reset[3] = {1, 0, 0};
@@ -273,12 +271,6 @@ int main(void) {
                 case SDLK_ESCAPE:
                     do_quit = 1;
                     break;
-                case SDLK_d:
-                    show_depth = 1 - show_depth;
-                    break;
-                case SDLK_f:
-                    free_flight = 1 - free_flight;
-                    break;
                 }
                 break;
             case SDL_WINDOWEVENT:
@@ -293,54 +285,22 @@ int main(void) {
             did_print = 0;
         }
 
-        const uint8_t *keystate = SDL_GetKeyboardState(NULL);
-        if (free_flight) {
-            double yaw = 0, pitch = 0, roll = 0;
-            if (keystate[SDL_SCANCODE_LEFT])
-                yaw -= 0.01;
-            if (keystate[SDL_SCANCODE_RIGHT])
-                yaw += 0.01;
-            if (keystate[SDL_SCANCODE_UP])
-                pitch += 0.01;
-            if (keystate[SDL_SCANCODE_DOWN])
-                pitch -= 0.01;
-            if (keystate[SDL_SCANCODE_Z])
-                roll -= 0.01;
-            if (keystate[SDL_SCANCODE_X])
-                roll += 0.01;
-            if (keystate[SDL_SCANCODE_A]) {
-                camera_pos[0] -= camera_fwd[0] * 0.1;
-                camera_pos[1] -= camera_fwd[1] * 0.1;
-                camera_pos[2] -= camera_fwd[2] * 0.1;
-            }
-            if (keystate[SDL_SCANCODE_S]) {
-                camera_pos[0] += camera_fwd[0] * 0.1;
-                camera_pos[1] += camera_fwd[1] * 0.1;
-                camera_pos[2] += camera_fwd[2] * 0.1;
-            }
+        // Rotate the camera around the origin.
+        double theta = 0.25 * now;
+        camera_pos[0] = 10. * cos(theta);
+        camera_pos[1] = 10. * sin(theta);
+        camera_pos[2] = 0;
 
-            // Note: rotating the existing camera_{fwd,left,up} instead of
-            // starting from unit vectors (see below).
-            rotate_like_a_plane(camera_fwd, roll, camera_left, pitch, camera_up, yaw);
-        } else {
-            // Rotate the camera around the origin.
-            double now = time_now();
-            double theta = 0.25 * now;
-            camera_pos[0] = 10. * cos(theta);
-            camera_pos[1] = 10. * sin(theta);
-            camera_pos[2] = 0;
-
-            // Point the camera at the origin.
-            double yaw = M_PI + theta;
-            double pitch = 0;
-            double roll = 0; //M_PI / 2;//0;
-            memcpy(camera_fwd, camera_fwd_reset, sizeof(camera_fwd));
-            memcpy(camera_left, camera_left_reset, sizeof(camera_left));
-            memcpy(camera_up, camera_up_reset, sizeof(camera_up));
-            rotate(camera_fwd, yaw, pitch, roll, camera_fwd);
-            rotate(camera_up, yaw, pitch, roll, camera_up);
-            rotate(camera_left, yaw, pitch, roll, camera_left);
-        }
+        // Point the camera at the origin.
+        double yaw = M_PI + theta;
+        double pitch = 0;
+        double roll = 0; //M_PI / 2;//0;
+        memcpy(camera_fwd, camera_fwd_reset, sizeof(camera_fwd));
+        memcpy(camera_left, camera_left_reset, sizeof(camera_left));
+        memcpy(camera_up, camera_up_reset, sizeof(camera_up));
+        rotate(camera_fwd, yaw, pitch, roll, camera_fwd);
+        rotate(camera_up, yaw, pitch, roll, camera_up);
+        rotate(camera_left, yaw, pitch, roll, camera_left);
 
         // TODO clear the screen: shouldn't have to do this out of band
         for (int x = 0; x < window_surface->w; x++) {
@@ -680,17 +640,6 @@ int main(void) {
                             ((uint32_t *)window_surface->pixels)[off] = pixel;
                         }
                     }
-                }
-            }
-        }
-
-        if (show_depth) {
-            for (int y = 0; y < window_surface->h; y++) {
-                for (int x = 0; x < window_surface->w; x++) {
-                    double z = depth_buffer[(y * window_surface->w) + x];
-                    double ramped = 255 * (1 - ((z - min_z) / (max_z - min_z)));
-                    uint32_t pixel = SDL_MapRGBA(window_surface->format, 0, ramped, 0, 0xff);
-                    ((uint32_t *)window_surface->pixels)[(y * window_surface->w) + x] = pixel;
                 }
             }
         }
