@@ -337,20 +337,42 @@ int main(void) {
         };
 
         int n_skipped_triangles = 0;
+        int n_skipped_triangles_by_backface_cull = 0;
+        int n_skipped_triangles_by_near_plane = 0;
 
         n_screen_triangles = 0;
         for (int i = 0; i < n_tris; i++) {
-            // Turn each arbitrary triangle into triangles suitable for
-            // rendering, by clipping away the parts that cannot be correctly
-            // rendered.
+            // Build the triangle to be rendered.
             double triangle[3][3];
-            int n_inside = 0, inside[3],
-                n_outside = 0, outside[3];
             for (int j = 0; j < 3; j++) {
                 triangle[j][0] = verts[tris[i][j]][0];
                 triangle[j][1] = verts[tris[i][j]][1];
                 triangle[j][2] = verts[tris[i][j]][2];
+            }
 
+            // Do backface culling: a triangle facing the wrong way from the
+            // camera (according to its normal) doesn't get rendered.
+            double normal[3];
+            double v1[3], v2[3];
+            v1[0] = triangle[0][0] - triangle[1][0];
+            v1[1] = triangle[0][1] - triangle[1][1];
+            v1[2] = triangle[0][2] - triangle[1][2];
+            v2[0] = triangle[0][0] - triangle[2][0];
+            v2[1] = triangle[0][1] - triangle[2][1];
+            v2[2] = triangle[0][2] - triangle[2][2];
+            cross(v2, v1, normal);
+            if (dot(camera_fwd, normal) < 0) {
+                n_skipped_triangles++;
+                n_skipped_triangles_by_backface_cull++;
+                continue;
+            }
+
+            // Turn each arbitrary triangle into triangles suitable for
+            // rendering, by clipping away the parts that cannot be correctly
+            // rendered.
+            int n_inside = 0, inside[3],
+                n_outside = 0, outside[3];
+            for (int j = 0; j < 3; j++) {
                 // Calculate signed distance to figure out which side of the
                 // screen plane the vertex is on.
                 double screen_to_v[3] = {
@@ -436,6 +458,7 @@ int main(void) {
                 // Just don't render this triangle.
                 ASSERT(n_outside == 0);
                 n_skipped_triangles++;
+                n_skipped_triangles_by_near_plane++;
             } else {
                 ASSERT(0);
             }
@@ -653,13 +676,13 @@ int main(void) {
 
         printf(
             "frame %i took %f seconds:\n"
-            "    (%i triangles skipped)\n"
+            "    (%i triangles skipped: %i by backface culling, %i by near plane)\n"
             "    %i triangles onscreen (%i onespans, %i twospans, %i degenerate)\n"
             "    %i spans (%i pointups, %i pointdowns, %i degenerates)\n"
             "    (%e pixels rejected by z)\n"
             "    %e pixels drawn\n",
             render_stats.frames_drawn, time_now() - frame_stats.start_time,
-            n_skipped_triangles,
+            n_skipped_triangles, n_skipped_triangles_by_backface_cull, n_skipped_triangles_by_near_plane,
             n_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles,
             num_spans, num_pointup_spans, num_pointdown_spans, num_degenerate_spans,
             (double)frame_stats.pixels_rejected_by_z,
