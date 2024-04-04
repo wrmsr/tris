@@ -34,7 +34,7 @@ typedef struct {
     uint8_t r, g, b;
 } screen_triangle_t;
 screen_triangle_t screen_triangles[NUM_SCREEN_TRIANGLES];
-int num_screen_triangles = 0;
+int n_screen_triangles = 0;
 
 // Any triangle can be decomposed into one or two triangles with a flat top or
 // bottom (a "span"). A span is simple and fast to draw.
@@ -238,7 +238,6 @@ int main(void) {
     SDL_Renderer *sdl_renderer = SDL_CreateRenderer(sdl_window, -1, SDL_RENDERER_SOFTWARE);
     ASSERT(sdl_renderer != NULL);
 
-    int did_print = 0;
     double *depth_buffer = NULL;
 
     double camera_pos[3] = {-10, 0, 0};
@@ -251,19 +250,27 @@ int main(void) {
     double camera_up_reset[3] = {0, 0, 1};
     double camera_up[3];
     memcpy(camera_up, camera_up_reset, sizeof(camera_up));
-    double start_time = time_now();
-    int frames = 0;
-    const int frames_chunk = 10;
-    double frames_since_time = time_now();
-
+    struct {
+        double start_time;
+        int frames_drawn;
+        int pixels_rejected_by_z;
+        int pixels_drawn;
+    } render_stats = {
+        .start_time = time_now(),
+        .frames_drawn = 0,
+        .pixels_drawn = 0,
+        .pixels_rejected_by_z = 0,
+    };
+    struct {
+        double start_time;
+        int pixels_rejected_by_z;
+        int pixels_drawn;
+    } frame_stats;
     int do_quit = 0;
-    while (!do_quit && frames < 200) {
-        if (frames % frames_chunk == 0) {
-            double elapsed = time_now() - frames_since_time;
-            printf("frames %i to %i: %f seconds, %f fps\n", frames - frames_chunk, frames, elapsed, frames_chunk / elapsed);
-            frames_since_time = time_now();
-        }
-        frames++;
+    while (!do_quit && render_stats.frames_drawn < 200) {
+        frame_stats.start_time = time_now();
+        frame_stats.pixels_rejected_by_z = 0;
+        frame_stats.pixels_drawn = 0;
 
         SDL_Surface *window_surface = SDL_GetWindowSurface(sdl_window);
         if (depth_buffer == NULL) {
@@ -289,11 +296,10 @@ int main(void) {
                     break;
                 }
             }
-            did_print = 0;
         }
 
         // Rotate the camera around the origin.
-        double now = frames / 10.;
+        double now = render_stats.frames_drawn / 10.;
         double theta = 0.25 * now;
         double scale = 3 + (.5 * cos(2 * now));
         camera_pos[0] = (2. * cos(theta)) * scale;
@@ -330,9 +336,9 @@ int main(void) {
             camera_pos[2] + camera_fwd[2]
         };
 
-        int n_inside_0_count = 0, n_inside_1_count = 0, n_inside_2_count = 0, n_inside_3_count = 0;
+        int n_skipped_triangles = 0;
 
-        num_screen_triangles = 0;
+        n_screen_triangles = 0;
         for (int i = 0; i < n_tris; i++) {
             // Turn each arbitrary triangle into triangles suitable for
             // rendering, by clipping away the parts that cannot be correctly
@@ -370,7 +376,6 @@ int main(void) {
                 memcpy(clipped_triangles[0][0], triangle[0], sizeof(double[3]));
                 memcpy(clipped_triangles[0][1], triangle[1], sizeof(double[3]));
                 memcpy(clipped_triangles[0][2], triangle[2], sizeof(double[3]));
-                n_inside_0_count++;
             } else if (n_inside == 1) {
                 ASSERT(n_outside == 2);
                 // If one point is inside (v3), then when we clip the triangle
@@ -405,7 +410,6 @@ int main(void) {
                 memcpy(clipped_triangles[1][0], u2, sizeof(double[3]));
                 memcpy(clipped_triangles[1][1], u1, sizeof(double[3]));
                 memcpy(clipped_triangles[1][2], v1, sizeof(double[3]));
-                n_inside_1_count++;
             } else if (n_inside == 2) {
                 ASSERT(n_outside == 1);
                 // if two points inside (v1, v2), then make one triangle (v3, u1, u2)
@@ -428,11 +432,10 @@ int main(void) {
                 memcpy(clipped_triangles[0][0], v3, sizeof(double[3]));
                 memcpy(clipped_triangles[0][1], u1, sizeof(double[3]));
                 memcpy(clipped_triangles[0][2], u2, sizeof(double[3]));
-                n_inside_2_count++;
             } else if (n_inside == 3) {
                 // Just don't render this triangle.
                 ASSERT(n_outside == 0);
-                n_inside_3_count++;
+                n_skipped_triangles++;
             } else {
                 ASSERT(0);
             }
@@ -507,18 +510,18 @@ int main(void) {
                     // Put this vertex into screenspace.
                     double half_screen_w = window_surface->w / 2, 
                            half_screen_h = window_surface->h / 2;
-                    screen_triangles[num_screen_triangles].v[k].x = half_screen_w - (dot(poi_rel, camera_left) * half_screen_w);
-                    screen_triangles[num_screen_triangles].v[k].y = half_screen_h + (dot(poi_rel, camera_up) * half_screen_h);
+                    screen_triangles[n_screen_triangles].v[k].x = half_screen_w - (dot(poi_rel, camera_left) * half_screen_w);
+                    screen_triangles[n_screen_triangles].v[k].y = half_screen_h + (dot(poi_rel, camera_up) * half_screen_h);
                     // If the vertex is behind the camera, then the distance
                     // should be negative.  i dont think this is right TODO maybe remove this assert
                     double z = dot(camera_pos_to_v, camera_fwd);
                     ASSERT(z >= 0);
-                    screen_triangles[num_screen_triangles].v[k].z = z;
+                    screen_triangles[n_screen_triangles].v[k].z = z;
 
                     // For debugging purposes, give every triangle a different color.
-                    screen_triangles[num_screen_triangles].r = (i * 13) % 0xff;
-                    screen_triangles[num_screen_triangles].g = (i * 101) % 0xff;
-                    screen_triangles[num_screen_triangles].b = (i * 211) % 0xff;
+                    screen_triangles[n_screen_triangles].r = (i * 13) % 0xff;
+                    screen_triangles[n_screen_triangles].g = (i * 101) % 0xff;
+                    screen_triangles[n_screen_triangles].b = (i * 211) % 0xff;
                 } else {
                     // If the ray doesn't project onto the screen, it's because
                     // the ray is parallel to the screen, so it will be
@@ -526,7 +529,7 @@ int main(void) {
                     ASSERT(0);
                 }
             }
-            ASSERT(++num_screen_triangles < NUM_SCREEN_TRIANGLES);
+            ASSERT(++n_screen_triangles < NUM_SCREEN_TRIANGLES);
             }
         }
 
@@ -538,7 +541,7 @@ int main(void) {
         num_onespan_triangles = 0;
         num_twospan_triangles = 0;
         num_degenerate_triangles = 0;
-        for (int i = 0; i < num_screen_triangles; i++) {
+        for (int i = 0; i < n_screen_triangles; i++) {
             screen_vertex *a = &screen_triangles[i].v[0];
             screen_vertex *b = &screen_triangles[i].v[1];
             screen_vertex *c = &screen_triangles[i].v[2];
@@ -600,20 +603,6 @@ int main(void) {
             }
         }
 
-        if (!did_print) {
-            did_print = 1;
-            printf("******\n");
-            printf("camera: %f, %f, %f\n", camera_pos[0], camera_pos[1], camera_pos[2]);
-            printf("forward: %f, %f, %f .. %f\n", camera_fwd[0], camera_fwd[1], camera_fwd[2], len(camera_fwd));
-            printf("left: %f, %f, %f .. %f\n", camera_left[0], camera_left[1], camera_left[2], len(camera_left));
-            printf("up: %f, %f, %f .. %f\n", camera_up[0], camera_up[1], camera_up[2], len(camera_up));
-            printf("0 = %i, 1 = %i, 2 = %i, 3 = %i\n", n_inside_0_count, n_inside_1_count, n_inside_2_count, n_inside_3_count);
-            printf("%i screen triangles (%i onespans, %i twospans, %i degenerates)\n",
-                num_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles);
-            printf("%i spans (%i pointups, %i pointdowns, %i degenerates)\n",
-                num_spans, num_pointup_spans, num_pointdown_spans, num_degenerate_spans);
-        }
-
         // Draw all spans to the screen, respecting the z-buffer.
         double min_z = DBL_MAX;
         double max_z = -DBL_MAX;
@@ -649,6 +638,11 @@ int main(void) {
                                 0xff
                             );
                             ((uint32_t *)window_surface->pixels)[off] = pixel;
+                            render_stats.pixels_drawn++;
+                            frame_stats.pixels_drawn++;
+                        } else {
+                            render_stats.pixels_rejected_by_z++;
+                            frame_stats.pixels_rejected_by_z++;
                         }
                     }
                 }
@@ -656,8 +650,30 @@ int main(void) {
         }
 
         SDL_UpdateWindowSurface(sdl_window);
+
+        printf(
+            "frame %i took %f seconds:\n"
+            "    (%i triangles skipped)\n"
+            "    %i triangles onscreen (%i onespans, %i twospans, %i degenerate)\n"
+            "    %i spans (%i pointups, %i pointdowns, %i degenerates)\n"
+            "    (%e pixels rejected by z)\n"
+            "    %e pixels drawn\n",
+            render_stats.frames_drawn, time_now() - frame_stats.start_time,
+            n_skipped_triangles,
+            n_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles,
+            num_spans, num_pointup_spans, num_pointdown_spans, num_degenerate_spans,
+            (double)frame_stats.pixels_rejected_by_z,
+            (double)frame_stats.pixels_drawn
+        );
+        render_stats.frames_drawn++;
     }
 
-    double elapsed = time_now() - start_time;
-    printf("%i frames in %f seconds: %f fps\n", frames, elapsed, frames / elapsed);
+    double elapsed = time_now() - render_stats.start_time;
+    printf("%i frames, %e pixels in %f seconds: %f fps, %e pixels/s\n",
+        render_stats.frames_drawn,
+        (double)render_stats.pixels_drawn,
+        elapsed,
+        render_stats.frames_drawn / elapsed,
+        render_stats.pixels_drawn / elapsed
+    );
 }
