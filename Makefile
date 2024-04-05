@@ -1,11 +1,11 @@
 .DEFAULT_GOAL=bin/tris
 
-CFLAGS=-std=c99 -pedantic -Wall -Werror -D_XOPEN_SOURCE=500 -Os
+CFLAGS=-std=c11 -pedantic -Wall -Werror -D_XOPEN_SOURCE=500 -Os
 
 bin:
 	mkdir bin
 
-bin/tris: obj/tris.o | bin
+bin/tris: obj/tris.o obj/vector.o | bin
 	$(CC) $^ -o $@ -lSDL2 -lm
 	stat -c %s $@
 	strip --strip-unneeded $@
