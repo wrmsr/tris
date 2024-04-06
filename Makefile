@@ -6,7 +6,7 @@ bin:
 	mkdir bin
 
 bin/tris: obj/tris.o obj/vector.o | bin
-	$(CC) $^ -o $@ -lSDL2 -lm
+	$(CC) $^ -o $@ -lSDL2 -lm -lGL
 	stat -c %s $@
 	strip --strip-unneeded $@
 	stat -c %s $@

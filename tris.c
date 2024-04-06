@@ -1,4 +1,6 @@
+#include <GL/gl.h>
 #include <SDL2/SDL.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -217,16 +219,24 @@ void load_obj(char *fn, double scale, double yaw, double pitch, double roll) {
     ASSERT(ferror(fp) == 0);
 }
 
+typedef struct {
+    GLubyte r, g, b;
+} gl_rgb_t;
+
 int main(void) {
     load_obj("cow-nonormals.obj", 1, 0, 0, -M_PI / 2);
 
     ASSERT(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == 0);
-    SDL_Window *sdl_window = SDL_CreateWindow("aspng", 0, 0, 100, 100, SDL_WINDOW_RESIZABLE);
+    SDL_Window *sdl_window = SDL_CreateWindow("aspng", 0, 0, 100, 100, SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
     ASSERT(sdl_window != NULL);
-    SDL_Renderer *sdl_renderer = SDL_CreateRenderer(sdl_window, -1, SDL_RENDERER_SOFTWARE);
-    ASSERT(sdl_renderer != NULL);
+    ASSERT(SDL_GL_CreateContext(sdl_window) != NULL);
+    GLuint screen_texture;
+    glGenTextures(1, &screen_texture);
 
-    double *depth_buffer = NULL;
+    int fakescreen_w = 640;
+    int fakescreen_h = 480;
+    double *depth_buffer = malloc(sizeof(double) * fakescreen_w * fakescreen_h);
+    gl_rgb_t *texture = malloc(sizeof(gl_rgb_t) * fakescreen_w * fakescreen_h);
 
     v3_t camera_pos = { .x = -10, .y = 0, .z = 0 };
     v3_t camera_fwd_reset = { .x = 1, .y = 0, .z = 0 };
@@ -260,11 +270,6 @@ int main(void) {
         frame_stats.pixels_rejected_by_z = 0;
         frame_stats.pixels_drawn = 0;
 
-        SDL_Surface *window_surface = SDL_GetWindowSurface(sdl_window);
-        if (depth_buffer == NULL) {
-            depth_buffer = malloc(sizeof(double) * window_surface->w * window_surface->h);
-        }
-
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
@@ -275,14 +280,6 @@ int main(void) {
                     break;
                 }
                 break;
-            case SDL_WINDOWEVENT:
-                switch (e.window.event) {
-                case SDL_WINDOWEVENT_RESIZED:
-                    free(depth_buffer);
-                    window_surface = SDL_GetWindowSurface(sdl_window);
-                    depth_buffer = malloc(sizeof(double) * window_surface->w * window_surface->h);
-                    break;
-                }
             }
         }
 
@@ -308,12 +305,11 @@ int main(void) {
         v3_cross(&camera_fwd, &camera_up, &camera_left);
 
         // TODO clear the screen: shouldn't have to do this out of band
-        for (int x = 0; x < window_surface->w; x++) {
-            for (int y = 0; y < window_surface->h; y++) {
-                uint32_t pixel = SDL_MapRGBA(window_surface->format, 0, 0, 0, 0xff);
-                int off = (y * window_surface->w) + x;
-                ((uint32_t *)window_surface->pixels)[off] = pixel;
+        for (int y = 0; y < fakescreen_h; y++) {
+            for (int x = 0; x < fakescreen_w; x++) {
+                int off = (y * fakescreen_w) + x;
                 depth_buffer[off] = DBL_MAX;
+                texture[off].r = texture[off].g = texture[off].b = 0;
             }
         }
 
@@ -497,8 +493,8 @@ int main(void) {
                     v3_sub(&poi, &screen_center, &poi_rel);
 
                     // Put this vertex into screenspace.
-                    double half_screen_w = window_surface->w / 2, 
-                           half_screen_h = window_surface->h / 2;
+                    double half_screen_w = fakescreen_w / 2,
+                           half_screen_h = fakescreen_h / 2;
                     screen_triangles[n_screen_triangles].v[k].x = half_screen_w - (v3_dot(&poi_rel, &camera_left) * half_screen_w);
                     screen_triangles[n_screen_triangles].v[k].y = half_screen_h + (v3_dot(&poi_rel, &camera_up) * half_screen_h);
                     // If the vertex is behind the camera, then the distance
@@ -595,7 +591,7 @@ int main(void) {
         // Draw all spans to the screen, respecting the z-buffer.
         double min_z = DBL_MAX;
         double max_z = -DBL_MAX;
-        for (int y = 0; y < window_surface->h; y++) {
+        for (int y = 0; y < fakescreen_h; y++) {
             for (int i = 0; i < num_spans; i++) {
                 span_t *span = &spans[i];
                 if ((span->y_lo <= y) && (y <= span->y_hi)) { // scanline (y) where this span should be drawn?
@@ -604,12 +600,12 @@ int main(void) {
                     ASSERT(x_fill_lo <= x_fill_hi);
                     if (x_fill_lo < 0)
                         x_fill_lo = 0;
-                    if (x_fill_hi > window_surface->w - 1)
-                        x_fill_hi = window_surface->w - 1;
+                    if (x_fill_hi > fakescreen_w - 1)
+                        x_fill_hi = fakescreen_w - 1;
                     double z_lo = span->ref.z + (span->dz_dy_lo * (y - span->ref.y));
                     for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
                         // Do a z-check before we draw the pixel.
-                        int off = (y * window_surface->w) + x;
+                        int off = (y * fakescreen_w) + x;
                         double z = z_lo + (span->dz_dx_lo * (x - x_fill_lo));
                         if ((z < depth_buffer[off]) && (z >= 0)) {
                             depth_buffer[off] = z;
@@ -619,14 +615,9 @@ int main(void) {
                             if (z < min_z) {
                                 min_z = z;
                             }
-                            uint32_t pixel = SDL_MapRGBA(
-                                window_surface->format,
-                                span->parent->r,
-                                span->parent->g,
-                                span->parent->b,
-                                0xff
-                            );
-                            ((uint32_t *)window_surface->pixels)[off] = pixel;
+                            texture[off].r = span->parent->r;
+                            texture[off].g = span->parent->g;
+                            texture[off].b = span->parent->b;
                             render_stats.pixels_drawn++;
                             frame_stats.pixels_drawn++;
                         } else {
@@ -638,7 +629,56 @@ int main(void) {
             }
         }
 
-        SDL_UpdateWindowSurface(sdl_window);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, screen_texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, fakescreen_w, fakescreen_h, 0, GL_RGB, GL_UNSIGNED_BYTE, texture);
+
+        // Figure out how big of a "screen" we can draw while not exceeding the
+        // window's width or height and maintaining the aspect ratio.
+        double ratio = fakescreen_w / (double)fakescreen_h;
+        SDL_Surface *window_surface = SDL_GetWindowSurface(sdl_window);
+        double
+          sizing_1_w = window_surface->h * ratio,
+          sizing_1_h = sizing_1_w / ratio;
+        bool sizing_1_fits = (sizing_1_w <= window_surface->w) && (sizing_1_h <= window_surface->h);
+        double
+          sizing_2_h = window_surface->w / ratio,
+          sizing_2_w = sizing_2_h * ratio;
+        bool sizing_2_fits = (sizing_2_w <= window_surface->w) && (sizing_2_h <= window_surface->h);
+        double screen_w, screen_h;
+        if (sizing_1_fits) {
+            screen_w = sizing_1_w;
+            screen_h = sizing_1_h;
+        } else if (sizing_2_fits) {
+            screen_w = sizing_2_w;
+            screen_h = sizing_2_h;
+        } else ASSERT(0);
+
+        // Draw the "screen" using OpenGL to scale it up to the window.
+        glClearColor(1, 0, 1, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glViewport(0, 0, window_surface->w, window_surface->h);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrtho(0, window_surface->w, 0, window_surface->h, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, screen_texture);
+        double
+           left   = (window_surface->w / 2.) - (screen_w / 2),
+           right  = (window_surface->w / 2.) + (screen_w / 2),
+           top    = (window_surface->h / 2.) + (screen_h / 2),
+           bottom = (window_surface->h / 2.) - (screen_h / 2);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0, 1); glVertex3f(left, bottom, 0);
+        glTexCoord2f(1, 1); glVertex3f(right, bottom, 0);
+        glTexCoord2f(1, 0); glVertex3f(right, top, 0);
+        glTexCoord2f(0, 0); glVertex3f(left, top, 0);
+        glEnd();
+
+        SDL_GL_SwapWindow(sdl_window);
 
         printf(
             "frame %i took %f seconds:\n"
