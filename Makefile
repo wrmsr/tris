@@ -1,6 +1,6 @@
 .DEFAULT_GOAL=bin/tris
 
-CFLAGS=-std=c11 -pedantic -Wall -Werror -D_XOPEN_SOURCE=500 -Os
+CFLAGS=-std=gnu11 -Wall -Werror -D_XOPEN_SOURCE=500 -Os
 
 bin:
 	mkdir bin

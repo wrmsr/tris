@@ -29,9 +29,9 @@ screen_triangle_t screen_triangles[NUM_SCREEN_TRIANGLES];
 int n_screen_triangles = 0;
 
 // Any triangle can be decomposed into one or two triangles with a flat top or
-// bottom (a "span"). A span is simple and fast to draw. A span has 
+// bottom (a "span"). A span is simple and fast to draw.
 #define NUM_SPANS 20000
-typedef struct {
+typedef struct span_t {
     int16_t y_lo, y_hi;
     screen_vertex_t ref; // this is either the lowest (down pointing span) or highest (up pointing span) point of the span.
     double dx_dy_lo;
@@ -39,9 +39,25 @@ typedef struct {
     double dz_dy_lo;
     double dz_dx_lo;
     screen_triangle_t *parent; // the triangle this span comes from, so that we can do texture/attribute/etc lookups
+
+    // We'll insert spans in a linked list (the "y range table"). That table
+    // indicates on which y-value spans begin and end, to speed up the raster
+    // loop.
+    struct span_t *next_span_y_entry;
+    struct span_t *next_span_y_exit;
+
+    // At raster time, we'll keep a list of active spans.
+    struct span_t *next_active_span;
+    struct span_t *prev_active_span;
 } span_t;
 span_t spans[NUM_SPANS];
 int num_spans;
+
+#define FAKESCREEN_W 640
+#define FAKESCREEN_H 480
+
+span_t *span_y_entry_table[FAKESCREEN_H];
+span_t *span_y_exit_table[FAKESCREEN_H];
 
 int num_pointup_spans;
 int num_pointdown_spans;
@@ -86,6 +102,13 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
     span->dz_dx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
     span->parent = parent;
     ASSERT(++num_spans < NUM_SPANS);
+
+    int clamped_y_lo = MAX(0, MIN(FAKESCREEN_H - 1, span->y_lo));
+    int clamped_y_hi = MAX(0, MIN(FAKESCREEN_H - 1, span->y_hi));
+    span->next_span_y_entry = span_y_entry_table[clamped_y_lo];
+    span_y_entry_table[clamped_y_lo] = span;
+    span->next_span_y_exit = span_y_exit_table[clamped_y_hi];
+    span_y_exit_table[clamped_y_hi] = span;
 }
 
 int ray_plane(v3_t *plane_coord, v3_t *plane_n, v3_t *ray_coord, v3_t *ray_v, v3_t *intersection) {
@@ -233,10 +256,8 @@ int main(void) {
     GLuint screen_texture;
     glGenTextures(1, &screen_texture);
 
-    int fakescreen_w = 640;
-    int fakescreen_h = 480;
-    double *depth_buffer = malloc(sizeof(double) * fakescreen_w * fakescreen_h);
-    gl_rgb_t *texture = malloc(sizeof(gl_rgb_t) * fakescreen_w * fakescreen_h);
+    double *depth_buffer = malloc(sizeof(double) * FAKESCREEN_W * FAKESCREEN_H);
+    gl_rgb_t *texture = malloc(sizeof(gl_rgb_t) * FAKESCREEN_W * FAKESCREEN_H);
 
     v3_t camera_pos = { .x = -10, .y = 0, .z = 0 };
     v3_t camera_fwd_reset = { .x = 1, .y = 0, .z = 0 };
@@ -305,12 +326,17 @@ int main(void) {
         v3_cross(&camera_fwd, &camera_up, &camera_left);
 
         // TODO clear the screen: shouldn't have to do this out of band
-        for (int y = 0; y < fakescreen_h; y++) {
-            for (int x = 0; x < fakescreen_w; x++) {
-                int off = (y * fakescreen_w) + x;
+        for (int y = 0; y < FAKESCREEN_H; y++) {
+            for (int x = 0; x < FAKESCREEN_W; x++) {
+                int off = (y * FAKESCREEN_W) + x;
                 depth_buffer[off] = DBL_MAX;
                 texture[off].r = texture[off].g = texture[off].b = 0;
             }
+        }
+
+        for (int y = 0; y < FAKESCREEN_H; y++) {
+            span_y_entry_table[y] = NULL;
+            span_y_exit_table[y] = NULL;
         }
 
         // The screen exists on a plane "in front of" the camera.
@@ -493,8 +519,8 @@ int main(void) {
                     v3_sub(&poi, &screen_center, &poi_rel);
 
                     // Put this vertex into screenspace.
-                    double half_screen_w = fakescreen_w / 2,
-                           half_screen_h = fakescreen_h / 2;
+                    double half_screen_w = FAKESCREEN_W / 2,
+                           half_screen_h = FAKESCREEN_H / 2;
                     screen_triangles[n_screen_triangles].v[k].x = half_screen_w - (v3_dot(&poi_rel, &camera_left) * half_screen_w);
                     screen_triangles[n_screen_triangles].v[k].y = half_screen_h + (v3_dot(&poi_rel, &camera_up) * half_screen_h);
                     // If the vertex is behind the camera, then the distance
@@ -589,41 +615,63 @@ int main(void) {
         }
 
         // Draw all spans to the screen, respecting the z-buffer.
+        for (int i = 0; i < num_spans; i++) {
+            spans[i].next_active_span = NULL;
+            spans[i].prev_active_span = NULL;
+        }
+        span_t *active_span_table = NULL;
         double min_z = DBL_MAX;
         double max_z = -DBL_MAX;
-        for (int y = 0; y < fakescreen_h; y++) {
-            for (int i = 0; i < num_spans; i++) {
-                span_t *span = &spans[i];
-                if ((span->y_lo <= y) && (y <= span->y_hi)) { // scanline (y) where this span should be drawn?
-                    int16_t x_fill_lo = span->ref.x + (span->dx_dy_lo * (y - span->ref.y));
-                    int16_t x_fill_hi = span->ref.x + (span->dx_dy_hi * (y - span->ref.y));
-                    ASSERT(x_fill_lo <= x_fill_hi);
-                    if (x_fill_lo < 0)
-                        x_fill_lo = 0;
-                    if (x_fill_hi > fakescreen_w - 1)
-                        x_fill_hi = fakescreen_w - 1;
-                    double z_lo = span->ref.z + (span->dz_dy_lo * (y - span->ref.y));
-                    for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
-                        // Do a z-check before we draw the pixel.
-                        int off = (y * fakescreen_w) + x;
-                        double z = z_lo + (span->dz_dx_lo * (x - x_fill_lo));
-                        if ((z < depth_buffer[off]) && (z >= 0)) {
-                            depth_buffer[off] = z;
-                            if (z > max_z) {
-                                max_z = z;
-                            }
-                            if (z < min_z) {
-                                min_z = z;
-                            }
-                            texture[off].r = span->parent->r;
-                            texture[off].g = span->parent->g;
-                            texture[off].b = span->parent->b;
-                            render_stats.pixels_drawn++;
-                            frame_stats.pixels_drawn++;
-                        } else {
-                            render_stats.pixels_rejected_by_z++;
-                            frame_stats.pixels_rejected_by_z++;
+        for (int y = 0; y < FAKESCREEN_H; y++) {
+            // Add spans which are starting.
+            for (span_t *span = span_y_entry_table[y]; span != NULL; span = span->next_span_y_entry) {
+                span->next_active_span = active_span_table;
+                span->prev_active_span = NULL;
+                if (active_span_table != NULL)
+                    active_span_table->prev_active_span = span;
+                active_span_table = span;
+            }
+
+            // Remove spans which are ending.
+            for (span_t *span = span_y_exit_table[y]; span != NULL; span = span->next_span_y_exit) {
+                if (span->prev_active_span != NULL)
+                    span->prev_active_span->next_active_span = span->next_active_span;
+                else
+                    active_span_table = span->next_active_span;
+                if (span->next_active_span != NULL)
+                    span->next_active_span->prev_active_span = span->prev_active_span;
+            }
+
+            // Render every active span.
+            for (span_t *span = active_span_table; span != NULL; span = span->next_active_span) {
+                int16_t x_fill_lo = span->ref.x + (span->dx_dy_lo * (y - span->ref.y));
+                int16_t x_fill_hi = span->ref.x + (span->dx_dy_hi * (y - span->ref.y));
+                ASSERT(x_fill_lo <= x_fill_hi);
+                if (x_fill_lo < 0)
+                    x_fill_lo = 0;
+                if (x_fill_hi > FAKESCREEN_W - 1)
+                    x_fill_hi = FAKESCREEN_W - 1;
+                double z_lo = span->ref.z + (span->dz_dy_lo * (y - span->ref.y));
+                for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
+                    // Do a z-check before we draw the pixel.
+                    int off = (y * FAKESCREEN_W) + x;
+                    double z = z_lo + (span->dz_dx_lo * (x - x_fill_lo));
+                    if ((z < depth_buffer[off]) && (z >= 0)) {
+                        depth_buffer[off] = z;
+                        if (z > max_z) {
+                            max_z = z;
                         }
+                        if (z < min_z) {
+                            min_z = z;
+                        }
+                        texture[off].r = span->parent->r;
+                        texture[off].g = span->parent->g;
+                        texture[off].b = span->parent->b;
+                        render_stats.pixels_drawn++;
+                        frame_stats.pixels_drawn++;
+                    } else {
+                        render_stats.pixels_rejected_by_z++;
+                        frame_stats.pixels_rejected_by_z++;
                     }
                 }
             }
@@ -633,11 +681,11 @@ int main(void) {
         glBindTexture(GL_TEXTURE_2D, screen_texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, fakescreen_w, fakescreen_h, 0, GL_RGB, GL_UNSIGNED_BYTE, texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FAKESCREEN_W, FAKESCREEN_H, 0, GL_RGB, GL_UNSIGNED_BYTE, texture);
 
         // Figure out how big of a "screen" we can draw while not exceeding the
         // window's width or height and maintaining the aspect ratio.
-        double ratio = fakescreen_w / (double)fakescreen_h;
+        double ratio = FAKESCREEN_W / (double)FAKESCREEN_H;
         SDL_Surface *window_surface = SDL_GetWindowSurface(sdl_window);
         double
           sizing_1_w = window_surface->h * ratio,
