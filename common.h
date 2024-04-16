@@ -1,6 +1,7 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #define MAX(a,b) ({ \
@@ -21,5 +22,7 @@
         exit(1); \
     } \
 }
+
+double time_now(void);
 
 #endif

@@ -13,5 +13,9 @@ void v3_cross(v3_t *, v3_t *, v3_t *);
 double v3_dot(v3_t *, v3_t *);
 double v3_len(v3_t *);
 void v3_sub(v3_t *, v3_t *, v3_t *);
+int v3_ray_plane(v3_t *, v3_t *, v3_t *, v3_t *, v3_t *);
+void v3_rotate(v3_t *in, double, double, double, v3_t *);
+void v3_rodrigues(v3_t *v, v3_t *k, double);
+void v3_rotate_like_a_plane(v3_t *, double, v3_t *, double, v3_t *, double);
 
 #endif
