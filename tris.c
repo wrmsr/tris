@@ -371,66 +371,72 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
 }
 
 void draw_screen_triangle(screen_triangle_t *screen_triangle) {
-    // Turn each screen triangle into one or two spans.
-            screen_vertex_t *a = &(screen_triangle->v[0]);
-            screen_vertex_t *b = &(screen_triangle->v[1]);
-            screen_vertex_t *c = &(screen_triangle->v[2]);
-            // Look for (one) top ("hi") vertex.
-            screen_vertex_t *hi = NULL;
-            if ((a->y > b->y) && (a->y > c->y)) {
-                hi = a;
-            } else if ((b->y > a->y) && (b->y > c->y)) {
-                hi = b;
-            } else if ((c->y > a->y) && (c->y > b->y)) {
-                hi = c;
-            }
-            // Look for (one) bottom ("lo") vertex.
-            screen_vertex_t *lo = NULL;
-            if ((a->y < b->y) && (a->y < c->y)) {
-                lo = a;
-            } else if ((b->y < a->y) && (b->y < c->y)) {
-                lo = b;
-            } else if ((c->y < a->y) && (c->y < b->y)) {
-                lo = c;
-            }
-            // If there's neither a hi nor lo vertex, then it's
-            // degenerate.
-            if ((hi == NULL) && (lo == NULL)) {
-                num_degenerate_triangles++;
-                return;
-            }
-            // If there's only a hi or lo vertex, then there is only one
-            // span.
-            if ((hi == NULL) != (lo == NULL)) {
-                if (hi != NULL) {
-                    add_span(a, b, c, hi, NULL);
-                } else if (lo != NULL) {
-                    add_span(a, b, c, NULL, lo);
-                } else ASSERT(0);
-                num_onespan_triangles++;
-            }
-            // If there is both a hi and lo vertex, then we need to draw
-            // two spans.
-            if ((hi != NULL) && (lo != NULL)) {
-                // First, we need to find the vertex ('mid') which isn't the hi
-                // or lo vertex.
-                screen_vertex_t *mid = NULL;
-                if ((a != hi) && (a != lo)) mid = a;
-                else if ((b != hi) && (b != lo)) mid = b;
-                else mid = c;
-                ASSERT(mid != NULL);
-                // Find the point on the edge linking hi and lo which is at the
-                // same y-coordinate as 'mid'.
-                screen_vertex_t split = {
-                    .x = lo->x + (((hi->x - lo->x) / (double)(hi->y - lo->y)) * (mid->y - lo->y)),
-                    .y = mid->y,
-                    .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
-                };
-                // Create two spans!
-                add_span(hi, mid, &split, hi, NULL);
-                add_span(lo, mid, &split, NULL, lo);
-                num_twospan_triangles++;
-            }
+    // Pick a vertex that is above all other vertices.
+    screen_vertex_t *a = &(screen_triangle->v[0]);
+    screen_vertex_t *b = &(screen_triangle->v[1]);
+    screen_vertex_t *c = &(screen_triangle->v[2]);
+    screen_vertex_t *hi = NULL;
+    if ((a->y > b->y) && (a->y > c->y)) {
+        hi = a;
+    } else if ((b->y > a->y) && (b->y > c->y)) {
+        hi = b;
+    } else if ((c->y > a->y) && (c->y > b->y)) {
+        hi = c;
+    }
+
+    // Pick a vertex that is below all other vertices.
+    screen_vertex_t *lo = NULL;
+    if ((a->y < b->y) && (a->y < c->y)) {
+        lo = a;
+    } else if ((b->y < a->y) && (b->y < c->y)) {
+        lo = b;
+    } else if ((c->y < a->y) && (c->y < b->y)) {
+        lo = c;
+    }
+
+    // If there's neither a hi nor lo vertex, then the triangle has no area and
+    // cannot be rendered.
+    if ((hi == NULL) && (lo == NULL)) {
+        num_degenerate_triangles++;
+        return;
+    }
+
+    // If there's only a hi or lo vertex, then there is only one span, e.g.
+    // this can be rendered as one span:
+    //   *******
+    //    *   *
+    //     * *
+    //      *
+    if ((hi == NULL) != (lo == NULL)) {
+        if (hi != NULL) {
+            add_span(a, b, c, hi, NULL);
+        } else if (lo != NULL) {
+            add_span(a, b, c, NULL, lo);
+        } else ASSERT(0);
+        num_onespan_triangles++;
+    }
+
+    // If there is both a hi and lo vertex, then we need to draw two spans.
+    if ((hi != NULL) && (lo != NULL)) {
+        // First, we need to find the vertex ('mid') which isn't the hi or lo
+        // vertex.
+        screen_vertex_t *mid = NULL;
+        if ((a != hi) && (a != lo)) mid = a;
+        else if ((b != hi) && (b != lo)) mid = b;
+        else mid = c;
+        ASSERT(mid != NULL);
+        // Find the point on the edge linking hi and lo which is at the same
+        // y-coordinate as 'mid'.
+        screen_vertex_t split = {
+            .x = lo->x + (((hi->x - lo->x) / (double)(hi->y - lo->y)) * (mid->y - lo->y)),
+            .y = mid->y,
+            .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
+        };
+        // Create two spans!
+        add_span(hi, mid, &split, hi, NULL);
+        add_span(lo, mid, &split, NULL, lo);
+        num_twospan_triangles++;
+    }
 }
 
 double old_t = 0;
