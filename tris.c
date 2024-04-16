@@ -20,13 +20,10 @@ typedef struct {
     double z;
 } screen_vertex_t;
 
-#define NUM_SCREEN_TRIANGLES 10000
 typedef struct {
     screen_vertex_t v[3];
     uint8_t r, g, b;
 } screen_triangle_t;
-screen_triangle_t screen_triangles[NUM_SCREEN_TRIANGLES];
-int n_screen_triangles = 0;
 
 // Any triangle can be decomposed into one or two triangles with a flat top or
 // bottom (a "span"). A span is simple and fast to draw.
@@ -38,7 +35,7 @@ typedef struct span_t {
     double dx_dy_hi;
     double dz_dy_lo;
     double dz_dx_lo;
-    screen_triangle_t *parent; // the triangle this span comes from, so that we can do texture/attribute/etc lookups
+    //screen_triangle_t *parent; // the triangle this span comes from, so that we can do texture/attribute/etc lookups
 
     // We'll insert spans in a linked list (the "y range table"). That table
     // indicates on which y-value spans begin and end, to speed up the raster
@@ -62,14 +59,15 @@ span_t *span_y_exit_table[FAKESCREEN_H];
 int n_skipped_triangles;
 int n_skipped_triangles_by_backface_cull;
 int n_skipped_triangles_by_near_plane;
-int num_pointup_spans;
-int num_pointdown_spans;
-int num_degenerate_spans;
+int num_triangles;
 int num_onespan_triangles;
 int num_twospan_triangles;
 int num_degenerate_triangles;
+int num_pointup_spans;
+int num_pointdown_spans;
+int num_degenerate_spans;
 
-void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, screen_triangle_t *parent) {
+void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo) {
     ASSERT((hi == NULL) != (lo == NULL));
     screen_vertex_t *hi_or_lo = (hi != NULL ? hi : lo);
     // Of the other two vertices, which is on the left, and which is on the
@@ -103,7 +101,6 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
     span->dx_dy_hi = (span->ref.x - x_hi_vert->x) / (double)(span->ref.y - x_hi_vert->y);
     span->dz_dy_lo = (span->ref.z - x_lo_vert->z) / (double)(span->ref.y - x_lo_vert->y);
     span->dz_dx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    span->parent = parent;
     ASSERT(++num_spans < NUM_SPANS);
 
     int clamped_y_lo = MAX(0, MIN(FAKESCREEN_H - 1, span->y_lo));
@@ -175,6 +172,8 @@ void rotate_like_a_plane(v3_t *camera_fwd, double roll, v3_t *camera_left, doubl
     rodrigues(camera_fwd, camera_up, yaw);
     rodrigues(camera_left, camera_up, yaw);
 }
+
+void draw_screen_triangle(screen_triangle_t *);
 
 void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
     // The screen exists on a plane "in front of" the camera.
@@ -330,6 +329,7 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
 
             // Project each clipped triangle into screen space.
             for (int j = 0; j < n_clipped_triangles; j++) {
+            screen_triangle_t screen_triangle;
             for (int k = 0; k < 3; k++) {
                 v3_t *v = &clipped_triangles[j].v[k];
 
@@ -347,18 +347,18 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
                     // Put this vertex into screenspace.
                     double half_screen_w = FAKESCREEN_W / 2,
                            half_screen_h = FAKESCREEN_H / 2;
-                    screen_triangles[n_screen_triangles].v[k].x = half_screen_w - (v3_dot(&poi_rel, camera_left) * half_screen_w);
-                    screen_triangles[n_screen_triangles].v[k].y = half_screen_h + (v3_dot(&poi_rel, camera_up) * half_screen_h);
+                    screen_triangle.v[k].x = half_screen_w - (v3_dot(&poi_rel, camera_left) * half_screen_w);
+                    screen_triangle.v[k].y = half_screen_h + (v3_dot(&poi_rel, camera_up) * half_screen_h);
                     // If the vertex is behind the camera, then the distance
                     // should be negative.  i dont think this is right TODO maybe remove this assert
                     double z = v3_dot(&camera_pos_to_v, camera_fwd);
                     ASSERT(z >= 0);
-                    screen_triangles[n_screen_triangles].v[k].z = z;
+                    screen_triangle.v[k].z = z;
 
                     // For debugging purposes, give every triangle a different color.
-                    screen_triangles[n_screen_triangles].r = 255; //(i * 13) % 0xff;
-                    screen_triangles[n_screen_triangles].g = 0; //(i * 101) % 0xff;
-                    screen_triangles[n_screen_triangles].b = 0; //(i * 211) % 0xff;
+                    screen_triangle.r = 255; //(i * 13) % 0xff;
+                    screen_triangle.g = 0; //(i * 101) % 0xff;
+                    screen_triangle.b = 0; //(i * 211) % 0xff;
                 } else {
                     // If the ray doesn't project onto the screen, it's because
                     // the ray is parallel to the screen, so it will be
@@ -366,9 +366,71 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
                     ASSERT(0);
                 }
             }
-            ASSERT(++n_screen_triangles < NUM_SCREEN_TRIANGLES);
+            draw_screen_triangle(&screen_triangle);
             }
+}
 
+void draw_screen_triangle(screen_triangle_t *screen_triangle) {
+    // Turn each screen triangle into one or two spans.
+            screen_vertex_t *a = &(screen_triangle->v[0]);
+            screen_vertex_t *b = &(screen_triangle->v[1]);
+            screen_vertex_t *c = &(screen_triangle->v[2]);
+            // Look for (one) top ("hi") vertex.
+            screen_vertex_t *hi = NULL;
+            if ((a->y > b->y) && (a->y > c->y)) {
+                hi = a;
+            } else if ((b->y > a->y) && (b->y > c->y)) {
+                hi = b;
+            } else if ((c->y > a->y) && (c->y > b->y)) {
+                hi = c;
+            }
+            // Look for (one) bottom ("lo") vertex.
+            screen_vertex_t *lo = NULL;
+            if ((a->y < b->y) && (a->y < c->y)) {
+                lo = a;
+            } else if ((b->y < a->y) && (b->y < c->y)) {
+                lo = b;
+            } else if ((c->y < a->y) && (c->y < b->y)) {
+                lo = c;
+            }
+            // If there's neither a hi nor lo vertex, then it's
+            // degenerate.
+            if ((hi == NULL) && (lo == NULL)) {
+                num_degenerate_triangles++;
+                return;
+            }
+            // If there's only a hi or lo vertex, then there is only one
+            // span.
+            if ((hi == NULL) != (lo == NULL)) {
+                if (hi != NULL) {
+                    add_span(a, b, c, hi, NULL);
+                } else if (lo != NULL) {
+                    add_span(a, b, c, NULL, lo);
+                } else ASSERT(0);
+                num_onespan_triangles++;
+            }
+            // If there is both a hi and lo vertex, then we need to draw
+            // two spans.
+            if ((hi != NULL) && (lo != NULL)) {
+                // First, we need to find the vertex ('mid') which isn't the hi
+                // or lo vertex.
+                screen_vertex_t *mid = NULL;
+                if ((a != hi) && (a != lo)) mid = a;
+                else if ((b != hi) && (b != lo)) mid = b;
+                else mid = c;
+                ASSERT(mid != NULL);
+                // Find the point on the edge linking hi and lo which is at the
+                // same y-coordinate as 'mid'.
+                screen_vertex_t split = {
+                    .x = lo->x + (((hi->x - lo->x) / (double)(hi->y - lo->y)) * (mid->y - lo->y)),
+                    .y = mid->y,
+                    .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
+                };
+                // Create two spans!
+                add_span(hi, mid, &split, hi, NULL);
+                add_span(lo, mid, &split, NULL, lo);
+                num_twospan_triangles++;
+            }
 }
 
 double old_t = 0;
@@ -540,8 +602,14 @@ int main(void) {
         n_skipped_triangles = 0;
         n_skipped_triangles_by_backface_cull = 0;
         n_skipped_triangles_by_near_plane = 0;
+        num_pointup_spans = 0;
+        num_pointdown_spans = 0;
+        num_degenerate_spans = 0;
+        num_onespan_triangles = 0;
+        num_twospan_triangles = 0;
+        num_degenerate_triangles = 0;
 
-        n_screen_triangles = 0;
+        num_spans = 0;
         for (int i = 0; i < n_tris; i++) {
             // Build the triangle to be rendered.
             triangle_t triangle;
@@ -549,77 +617,6 @@ int main(void) {
                 memcpy(&triangle.v[j], &verts[tris[i][j]], sizeof(v3_t));
             }
             draw(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
-        }
-
-        
-        // Turn each screen triangle into one or two spans.
-        num_spans = 0;
-        num_pointup_spans = 0;
-        num_pointdown_spans = 0;
-        num_degenerate_spans = 0;
-        num_onespan_triangles = 0;
-        num_twospan_triangles = 0;
-        num_degenerate_triangles = 0;
-        for (int i = 0; i < n_screen_triangles; i++) {
-            screen_vertex_t *a = &screen_triangles[i].v[0];
-            screen_vertex_t *b = &screen_triangles[i].v[1];
-            screen_vertex_t *c = &screen_triangles[i].v[2];
-            // Look for (one) top ("hi") vertex.
-            screen_vertex_t *hi = NULL;
-            if ((a->y > b->y) && (a->y > c->y)) {
-                hi = a;
-            } else if ((b->y > a->y) && (b->y > c->y)) {
-                hi = b;
-            } else if ((c->y > a->y) && (c->y > b->y)) {
-                hi = c;
-            }
-            // Look for (one) bottom ("lo") vertex.
-            screen_vertex_t *lo = NULL;
-            if ((a->y < b->y) && (a->y < c->y)) {
-                lo = a;
-            } else if ((b->y < a->y) && (b->y < c->y)) {
-                lo = b;
-            } else if ((c->y < a->y) && (c->y < b->y)) {
-                lo = c;
-            }
-            // If there's neither a hi nor lo vertex, then it's
-            // degenerate.
-            if ((hi == NULL) && (lo == NULL)) {
-                num_degenerate_triangles++;
-                continue;
-            }
-            // If there's only a hi or lo vertex, then there is only one
-            // span.
-            if ((hi == NULL) != (lo == NULL)) {
-                if (hi != NULL) {
-                    add_span(a, b, c, hi, NULL, &screen_triangles[i]);
-                } else if (lo != NULL) {
-                    add_span(a, b, c, NULL, lo, &screen_triangles[i]);
-                } else ASSERT(0);
-                num_onespan_triangles++;
-            }
-            // If there is both a hi and lo vertex, then we need to draw
-            // two spans.
-            if ((hi != NULL) && (lo != NULL)) {
-                // First, we need to find the vertex ('mid') which isn't the hi
-                // or lo vertex.
-                screen_vertex_t *mid = NULL;
-                if ((a != hi) && (a != lo)) mid = a;
-                else if ((b != hi) && (b != lo)) mid = b;
-                else mid = c;
-                ASSERT(mid != NULL);
-                // Find the point on the edge linking hi and lo which is at the
-                // same y-coordinate as 'mid'.
-                screen_vertex_t split = {
-                    .x = lo->x + (((hi->x - lo->x) / (double)(hi->y - lo->y)) * (mid->y - lo->y)),
-                    .y = mid->y,
-                    .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
-                };
-                // Create two spans!
-                add_span(hi, mid, &split, hi, NULL, &screen_triangles[i]);
-                add_span(lo, mid, &split, NULL, lo, &screen_triangles[i]);
-                num_twospan_triangles++;
-            }
         }
 
         // Draw all spans to the screen, respecting the z-buffer.
@@ -672,9 +669,9 @@ int main(void) {
                         if (z < min_z) {
                             min_z = z;
                         }
-                        texture[off].r = span->parent->r;
-                        texture[off].g = span->parent->g;
-                        texture[off].b = span->parent->b;
+                        texture[off].r = 0; //span->parent->r;
+                        texture[off].g = 0; //span->parent->g;
+                        texture[off].b = 255; //span->parent->b;
                         render_stats.pixels_drawn++;
                         frame_stats.pixels_drawn++;
                     } else {
@@ -745,7 +742,7 @@ int main(void) {
             "    %e pixels drawn\n",
             render_stats.frames_drawn, time_now() - frame_stats.start_time,
             n_skipped_triangles, n_skipped_triangles_by_backface_cull, n_skipped_triangles_by_near_plane,
-            n_screen_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles,
+            num_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles,
             num_spans, num_pointup_spans, num_pointdown_spans, num_degenerate_spans,
             (double)frame_stats.pixels_rejected_by_z,
             (double)frame_stats.pixels_drawn
