@@ -9,6 +9,16 @@
 
 #define EPSILON 1e-6
 
+double old_t = 0;
+double time_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    double t = ts.tv_sec + (ts.tv_nsec / 1.0e9);
+    ASSERT(t > old_t);
+    old_t = t;
+    return t;
+}
+
 typedef struct {
     v3_t v[3];
 } triangle_t;
@@ -56,16 +66,53 @@ int num_spans;
 span_t *span_y_entry_table[FAKESCREEN_H];
 span_t *span_y_exit_table[FAKESCREEN_H];
 
-int n_skipped_triangles;
-int n_skipped_triangles_by_backface_cull;
-int n_skipped_triangles_by_near_plane;
-int num_triangles;
-int num_onespan_triangles;
-int num_twospan_triangles;
-int num_degenerate_triangles;
-int num_pointup_spans;
-int num_pointdown_spans;
-int num_degenerate_spans;
+struct {
+    double start_time;
+    int frames_drawn;
+    int pixels_rejected_by_z;
+    int pixels_drawn;
+} stats = {
+    .start_time = -1,
+    .frames_drawn = 0,
+    .pixels_drawn = 0,
+    .pixels_rejected_by_z = 0,
+};
+
+struct {
+    double start_time;
+
+    int n_skipped_triangles;
+    int n_skipped_triangles_by_backface_cull;
+    int n_skipped_triangles_by_near_plane;
+    int num_triangles;
+    int num_onespan_triangles;
+    int num_twospan_triangles;
+    int num_degenerate_triangles;
+    int num_pointup_spans;
+    int num_pointdown_spans;
+    int num_degenerate_spans;
+
+    int pixels_rejected_by_z;
+    int pixels_drawn;
+} frame_stats;
+
+void begin_frame(void) {
+    num_spans = 0;
+
+    if (stats.start_time < 0) {
+        stats.start_time = time_now();
+    }
+
+    frame_stats.n_skipped_triangles = 0;
+    frame_stats.n_skipped_triangles_by_backface_cull = 0;
+    frame_stats.n_skipped_triangles_by_near_plane = 0;
+    frame_stats.num_pointup_spans = 0;
+    frame_stats.num_pointdown_spans = 0;
+    frame_stats.num_degenerate_spans = 0;
+    frame_stats.num_onespan_triangles = 0;
+    frame_stats.num_twospan_triangles = 0;
+    frame_stats.num_degenerate_triangles = 0;
+}
 
 void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo) {
     ASSERT((hi == NULL) != (lo == NULL));
@@ -84,15 +131,15 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
         x_hi_vert = other1;
     } else {
         // We may receive degenerate spans, just make a note.
-        num_degenerate_spans++;
+        frame_stats.num_degenerate_spans++;
         return;
     }
     if (hi != NULL) {
-        num_pointdown_spans++;
+        frame_stats.num_pointdown_spans++;
         span->y_lo = other1->y; // or other2[1], doesn't matter.
         span->y_hi = hi->y;
     } else {
-        num_pointup_spans++;
+        frame_stats.num_pointup_spans++;
         span->y_lo = lo->y;
         span->y_hi = other1->y; // or other2[1], doesn't matter.
     }
@@ -188,8 +235,8 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
             v3_t normal;
             v3_cross(&v2, &v1, &normal);
             if (v3_dot(camera_fwd, &normal) < 0) {
-                n_skipped_triangles++;
-                n_skipped_triangles_by_backface_cull++;
+                frame_stats.n_skipped_triangles++;
+                frame_stats.n_skipped_triangles_by_backface_cull++;
                 return;
             }
 
@@ -276,8 +323,8 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
             } else if (n_inside == 3) {
                 // Just don't render this triangle.
                 ASSERT(n_outside == 0);
-                n_skipped_triangles++;
-                n_skipped_triangles_by_near_plane++;
+                frame_stats.n_skipped_triangles++;
+                frame_stats.n_skipped_triangles_by_near_plane++;
             } else {
                 ASSERT(0);
             }
@@ -397,12 +444,11 @@ void draw_screen_triangle(screen_triangle_t *screen_triangle) {
     // If there's neither a hi nor lo vertex, then the triangle has no area and
     // cannot be rendered.
     if ((hi == NULL) && (lo == NULL)) {
-        num_degenerate_triangles++;
+        frame_stats.num_degenerate_triangles++;
         return;
     }
 
-    // If there's only a hi or lo vertex, then there is only one span, e.g.
-    // this can be rendered as one span:
+    // If there's only a hi or lo vertex, then there is only one span, e.g.:
     //   *******
     //    *   *
     //     * *
@@ -413,7 +459,7 @@ void draw_screen_triangle(screen_triangle_t *screen_triangle) {
         } else if (lo != NULL) {
             add_span(a, b, c, NULL, lo);
         } else ASSERT(0);
-        num_onespan_triangles++;
+        frame_stats.num_onespan_triangles++;
     }
 
     // If there is both a hi and lo vertex, then we need to draw two spans.
@@ -435,18 +481,8 @@ void draw_screen_triangle(screen_triangle_t *screen_triangle) {
         // Create two spans!
         add_span(hi, mid, &split, hi, NULL);
         add_span(lo, mid, &split, NULL, lo);
-        num_twospan_triangles++;
+        frame_stats.num_twospan_triangles++;
     }
-}
-
-double old_t = 0;
-double time_now(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    double t = ts.tv_sec + (ts.tv_nsec / 1.0e9);
-    ASSERT(t > old_t);
-    old_t = t;
-    return t;
 }
 
 #define MAX_VERTS 10000
@@ -535,24 +571,8 @@ int main(void) {
     v3_t camera_up_reset = { .x = 0, .y = 0, .z = 1 };
     v3_t camera_up;
     memcpy(&camera_up, &camera_up_reset, sizeof(v3_t));
-    struct {
-        double start_time;
-        int frames_drawn;
-        int pixels_rejected_by_z;
-        int pixels_drawn;
-    } render_stats = {
-        .start_time = time_now(),
-        .frames_drawn = 0,
-        .pixels_drawn = 0,
-        .pixels_rejected_by_z = 0,
-    };
-    struct {
-        double start_time;
-        int pixels_rejected_by_z;
-        int pixels_drawn;
-    } frame_stats;
     int do_quit = 0;
-    while (!do_quit && render_stats.frames_drawn < 200) {
+    while (!do_quit && stats.frames_drawn < 200) {
         frame_stats.start_time = time_now();
         frame_stats.pixels_rejected_by_z = 0;
         frame_stats.pixels_drawn = 0;
@@ -571,7 +591,7 @@ int main(void) {
         }
 
         // Rotate the camera around the origin.
-        double now = render_stats.frames_drawn / 10.;
+        double now = stats.frames_drawn / 10.;
         double theta = 0.25 * now;
         double scale = 3 + (.5 * cos(2 * now));
         camera_pos.x = (2. * cos(theta)) * scale;
@@ -605,17 +625,7 @@ int main(void) {
             span_y_exit_table[y] = NULL;
         }
 
-        n_skipped_triangles = 0;
-        n_skipped_triangles_by_backface_cull = 0;
-        n_skipped_triangles_by_near_plane = 0;
-        num_pointup_spans = 0;
-        num_pointdown_spans = 0;
-        num_degenerate_spans = 0;
-        num_onespan_triangles = 0;
-        num_twospan_triangles = 0;
-        num_degenerate_triangles = 0;
-
-        num_spans = 0;
+        begin_frame();
         for (int i = 0; i < n_tris; i++) {
             // Build the triangle to be rendered.
             triangle_t triangle;
@@ -678,10 +688,10 @@ int main(void) {
                         texture[off].r = 0; //span->parent->r;
                         texture[off].g = 0; //span->parent->g;
                         texture[off].b = 255; //span->parent->b;
-                        render_stats.pixels_drawn++;
+                        stats.pixels_drawn++;
                         frame_stats.pixels_drawn++;
                     } else {
-                        render_stats.pixels_rejected_by_z++;
+                        stats.pixels_rejected_by_z++;
                         frame_stats.pixels_rejected_by_z++;
                     }
                 }
@@ -746,22 +756,22 @@ int main(void) {
             "    %i spans (%i pointups, %i pointdowns, %i degenerates)\n"
             "    (%e pixels rejected by z)\n"
             "    %e pixels drawn\n",
-            render_stats.frames_drawn, time_now() - frame_stats.start_time,
-            n_skipped_triangles, n_skipped_triangles_by_backface_cull, n_skipped_triangles_by_near_plane,
-            num_triangles, num_onespan_triangles, num_twospan_triangles, num_degenerate_triangles,
-            num_spans, num_pointup_spans, num_pointdown_spans, num_degenerate_spans,
+            stats.frames_drawn, time_now() - frame_stats.start_time,
+            frame_stats.n_skipped_triangles, frame_stats.n_skipped_triangles_by_backface_cull, frame_stats.n_skipped_triangles_by_near_plane,
+            frame_stats.num_triangles, frame_stats.num_onespan_triangles, frame_stats.num_twospan_triangles, frame_stats.num_degenerate_triangles,
+            num_spans, frame_stats.num_pointup_spans, frame_stats.num_pointdown_spans, frame_stats.num_degenerate_spans,
             (double)frame_stats.pixels_rejected_by_z,
             (double)frame_stats.pixels_drawn
         );
-        render_stats.frames_drawn++;
+        stats.frames_drawn++;
     }
 
-    double elapsed = time_now() - render_stats.start_time;
+    double elapsed = time_now() - stats.start_time;
     printf("%i frames, %e pixels in %f seconds: %f fps, %e pixels/s\n",
-        render_stats.frames_drawn,
-        (double)render_stats.pixels_drawn,
+        stats.frames_drawn,
+        (double)stats.pixels_drawn,
         elapsed,
-        render_stats.frames_drawn / elapsed,
-        render_stats.pixels_drawn / elapsed
+        stats.frames_drawn / elapsed,
+        stats.pixels_drawn / elapsed
     );
 }
