@@ -15,7 +15,7 @@ render_frame_stats_t render_frame_stats;
 
 extern int num_spans;
 
-void begin_frame(void) {
+void render_begin_frame(void) {
     num_spans = 0;
 
     if (render_stats.start_time < 0) {
@@ -81,7 +81,7 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
     span_y_exit_table[clamped_y_hi] = span;
 }
 
-void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
+void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
     // The screen exists on a plane "in front of" the camera.
     v3_t screen_center;
     v3_add(camera_pos, camera_fwd, &screen_center);
@@ -272,11 +272,11 @@ void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left
                     ASSERT(0);
                 }
             }
-            draw_screen_triangle(&screen_triangle);
+            render_draw_screen_triangle(&screen_triangle);
             }
 }
 
-void draw_screen_triangle(screen_triangle_t *screen_triangle) {
+void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
     // Pick a vertex that is above all other vertices.
     screen_vertex_t *a = &(screen_triangle->v[0]);
     screen_vertex_t *b = &(screen_triangle->v[1]);
@@ -344,7 +344,7 @@ void draw_screen_triangle(screen_triangle_t *screen_triangle) {
     }
 }
 
-void end_frame(void) {
+void render_end_frame(void) {
     printf(
         "frame %i took %f seconds:\n"
         "    (%i triangles skipped: %i by backface culling, %i by near plane)\n"
@@ -362,7 +362,7 @@ void end_frame(void) {
     render_stats.frames_drawn++;
 }
 
-void print_stats(void) {
+void render_print_stats(void) {
     double elapsed = time_now() - render_stats.start_time;
     printf("%i frames, %e pixels in %f seconds: %f fps, %e pixels/s\n",
         render_stats.frames_drawn,

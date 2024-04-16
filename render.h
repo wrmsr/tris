@@ -72,10 +72,10 @@ typedef struct span_t {
     struct span_t *prev_active_span;
 } span_t;
 
-void begin_frame(void);
-void draw_screen_triangle(screen_triangle_t *);
-void draw(v3_t *, v3_t *, v3_t *, v3_t *, triangle_t *);
-void end_frame(void);
-void print_stats(void);
+void render_begin_frame(void);
+void render_draw_screen_triangle(screen_triangle_t *);
+void render_draw_triangle(v3_t *, v3_t *, v3_t *, v3_t *, triangle_t *);
+void render_end_frame(void);
+void render_print_stats(void);
 
 #endif

@@ -156,14 +156,14 @@ int main(void) {
             span_y_exit_table[y] = NULL;
         }
 
-        begin_frame();
+        render_begin_frame();
         for (int i = 0; i < n_tris; i++) {
             // Build the triangle to be rendered.
             triangle_t triangle;
             for (int j = 0; j < 3; j++) {
                 memcpy(&triangle.v[j], &verts[tris[i][j]], sizeof(v3_t));
             }
-            draw(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
+            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
         }
 
         // Draw all spans to the screen, respecting the z-buffer.
@@ -280,8 +280,8 @@ int main(void) {
 
         SDL_GL_SwapWindow(sdl_window);
 
-        end_frame();
+        render_end_frame();
     }
 
-    print_stats();
+    render_print_stats();
 }
