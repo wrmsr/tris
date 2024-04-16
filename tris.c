@@ -59,6 +59,9 @@ int num_spans;
 span_t *span_y_entry_table[FAKESCREEN_H];
 span_t *span_y_exit_table[FAKESCREEN_H];
 
+int n_skipped_triangles;
+int n_skipped_triangles_by_backface_cull;
+int n_skipped_triangles_by_near_plane;
 int num_pointup_spans;
 int num_pointdown_spans;
 int num_degenerate_spans;
@@ -173,6 +176,201 @@ void rotate_like_a_plane(v3_t *camera_fwd, double roll, v3_t *camera_left, doubl
     rodrigues(camera_left, camera_up, yaw);
 }
 
+void draw(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
+    // The screen exists on a plane "in front of" the camera.
+    v3_t screen_center;
+    v3_add(camera_pos, camera_fwd, &screen_center);
+
+    // Do backface culling: a triangle facing the wrong way from the
+            // camera (according to its normal) doesn't get rendered.
+            v3_t v1, v2;
+            v3_sub(&(triangle->v[0]), &(triangle->v[1]), &v1);
+            v3_sub(&(triangle->v[0]), &(triangle->v[2]), &v2);
+            v3_t normal;
+            v3_cross(&v2, &v1, &normal);
+            if (v3_dot(camera_fwd, &normal) < 0) {
+                n_skipped_triangles++;
+                n_skipped_triangles_by_backface_cull++;
+                return;
+            }
+
+            // Turn each arbitrary triangle into triangles suitable for
+            // rendering, by clipping away the parts that cannot be correctly
+            // rendered.
+            int n_inside = 0, inside[3],
+                n_outside = 0, outside[3];
+            for (int j = 0; j < 3; j++) {
+                // Calculate signed distance to figure out which side of the
+                // screen plane the vertex is on.
+                v3_t screen_to_v;
+                v3_sub(&(triangle->v[j]), &screen_center, &screen_to_v);
+                double d = v3_dot(&screen_to_v, camera_fwd);
+                if (d < 0) {
+                    inside[n_inside++] = j;
+                    ASSERT(n_inside <= 3);
+                } else {
+                    outside[n_outside++] = j;
+                    ASSERT(n_outside <= 3);
+                }
+            }
+
+            int n_clipped_triangles = 0;
+            triangle_t clipped_triangles[2];
+            if (n_inside == 0) {
+                // This triangle is fine as-is.
+                n_clipped_triangles = 1;
+                memcpy(&clipped_triangles[0], triangle, sizeof(triangle_t));
+            } else if (n_inside == 1) {
+                ASSERT(n_outside == 2);
+                // If one point is inside (v3), then when we clip the triangle
+                // it becomes a quadrilateral. The quadrilateral has two of the
+                // original vertices, and an additional 2 vertices (named u1,
+                // u2) at the point where (v3, v1) and (v3, v2) intersect the
+                // screen plane.
+                v3_t *v3 = &(triangle->v[inside[0]]);
+                v3_t *v1 = &(triangle->v[outside[0]]);
+                v3_t v1_to_v3;
+                v3_sub(v3, v1, &v1_to_v3);
+                v3_t u1;
+                // v1 and v3 are on opposite sides of the camera plane, so
+                // v3-v1 and the camera plane cannot be parallel.
+                ASSERT(ray_plane(&screen_center, camera_fwd, v1, &v1_to_v3, &u1));
+                v3_t *v2 = &(triangle->v[outside[1]]);
+                v3_t v2_to_v3;
+                v3_sub(v3, v2, &v2_to_v3);
+                v3_t u2;
+                // Ditto, see above.
+                ASSERT(ray_plane(&screen_center, camera_fwd, v2, &v2_to_v3, &u2));
+                // We can't render a quadrilateral, but we can split it into
+                // two triangles. Since we know that the perimeter of the
+                // quadrilateral is formed by visiting v1, v2, u2, u1 in that
+                // order, we know that we can form two triangles (v1, v2, u2)
+                // and (u2, u1, v1).
+                n_clipped_triangles = 2;
+                memcpy(&clipped_triangles[0].v[0], v1, sizeof(v3_t));
+                memcpy(&clipped_triangles[0].v[1], v2, sizeof(v3_t));
+                memcpy(&clipped_triangles[0].v[2], &u2, sizeof(v3_t));
+                memcpy(&clipped_triangles[1].v[0], &u2, sizeof(v3_t));
+                memcpy(&clipped_triangles[1].v[1], &u1, sizeof(v3_t));
+                memcpy(&clipped_triangles[1].v[2], v1, sizeof(v3_t));
+            } else if (n_inside == 2) {
+                ASSERT(n_outside == 1);
+                // if two points inside (v1, v2), then make one triangle (v3, u1, u2)
+                v3_t *v3 = &(triangle->v[outside[0]]);
+                v3_t *v1 = &(triangle->v[inside[0]]);
+                v3_t v1_to_v3;
+                v3_sub(v3, v1, &v1_to_v3);
+                v3_t u1;
+                // v1 and v3 are on opposite sides of the camera plane, so
+                // v3-v1 and the camera plane cannot be parallel.
+                ASSERT(ray_plane(&screen_center, camera_fwd, v1, &v1_to_v3, &u1));
+                v3_t *v2 = &(triangle->v[inside[1]]);
+                v3_t v2_to_v3;
+                v3_sub(v3, v2, &v2_to_v3);
+                v3_t u2;
+                // Ditto, see above.
+                ASSERT(ray_plane(&screen_center, camera_fwd, v2, &v2_to_v3, &u2));
+                n_clipped_triangles = 1;
+                memcpy(&clipped_triangles[0].v[0], v3, sizeof(v3_t));
+                memcpy(&clipped_triangles[0].v[1], &u1, sizeof(v3_t));
+                memcpy(&clipped_triangles[0].v[2], &u2, sizeof(v3_t));
+            } else if (n_inside == 3) {
+                // Just don't render this triangle.
+                ASSERT(n_outside == 0);
+                n_skipped_triangles++;
+                n_skipped_triangles_by_near_plane++;
+            } else {
+                ASSERT(0);
+            }
+            ASSERT((n_clipped_triangles >= 0) && (n_clipped_triangles <= 2));
+
+                // Anything on the same side of the screen plane is the camera is "inside the camera".
+                //We can't render (partially or
+                // completely) inside objects correctly, and we have to do something about it. Example:
+                
+                    /*
+                              v1 . . . . . . . v2
+                               .               .
+                                .             .
+                    _*___________.___________.____ camera plane
+                                  .         .
+                                   .       .
+                           \cam/    .     .
+                                     .   .
+                                      . .
+                                       v3
+
+                    in this case, cam->v3 does intersect the plane, but the
+                    intersection point is to the left (see *), which results in
+                    an unintuitive and weird render, given that the other
+                    vertices of the triangle will be projected onto the right of the screen.
+
+                    however, not rendering any part of the triangle would also
+                    look bad. to make this triangle renderable, we can remove the part of
+                    the triangle that won't render properly, which in this case
+                    results in a quadrilateral. We can split it into two
+                    nonoverlapping triangles.
+
+                              v1 . . . . . . . v2
+                               .'  ,           .
+                                .     ' .     .
+                    _____________. . . . . .'.____ camera plane
+
+
+                           \cam/
+
+                    there are three cases in total for how to do this culling,
+                    depending on how many vertices (in this case, 1) are
+                    "inside".
+                    */
+
+                // side_of_plane(screen_center, camera_fwd, point) is negative
+                // if point is between the camera and the screen plane
+                // ("inside" the camera). 
+
+            // Project each clipped triangle into screen space.
+            for (int j = 0; j < n_clipped_triangles; j++) {
+            for (int k = 0; k < 3; k++) {
+                v3_t *v = &clipped_triangles[j].v[k];
+
+                // Project this vertex into screen space: draw a ray from the
+                // vertex to the camera, intersecting with a plane (the
+                // screen).
+                v3_t camera_pos_to_v;
+                v3_sub(v, camera_pos, &camera_pos_to_v);
+                v3_t poi;
+                if (ray_plane(&screen_center, camera_fwd, camera_pos, &camera_pos_to_v, &poi)) {
+                    // Find the intersection, relative to the plane center.
+                    v3_t poi_rel;
+                    v3_sub(&poi, &screen_center, &poi_rel);
+
+                    // Put this vertex into screenspace.
+                    double half_screen_w = FAKESCREEN_W / 2,
+                           half_screen_h = FAKESCREEN_H / 2;
+                    screen_triangles[n_screen_triangles].v[k].x = half_screen_w - (v3_dot(&poi_rel, camera_left) * half_screen_w);
+                    screen_triangles[n_screen_triangles].v[k].y = half_screen_h + (v3_dot(&poi_rel, camera_up) * half_screen_h);
+                    // If the vertex is behind the camera, then the distance
+                    // should be negative.  i dont think this is right TODO maybe remove this assert
+                    double z = v3_dot(&camera_pos_to_v, camera_fwd);
+                    ASSERT(z >= 0);
+                    screen_triangles[n_screen_triangles].v[k].z = z;
+
+                    // For debugging purposes, give every triangle a different color.
+                    screen_triangles[n_screen_triangles].r = 255; //(i * 13) % 0xff;
+                    screen_triangles[n_screen_triangles].g = 0; //(i * 101) % 0xff;
+                    screen_triangles[n_screen_triangles].b = 0; //(i * 211) % 0xff;
+                } else {
+                    // If the ray doesn't project onto the screen, it's because
+                    // the ray is parallel to the screen, so it will be
+                    // perpendicular to the screen normal.
+                    ASSERT(0);
+                }
+            }
+            ASSERT(++n_screen_triangles < NUM_SCREEN_TRIANGLES);
+            }
+
+}
+
 double old_t = 0;
 double time_now(void) {
     struct timespec ts;
@@ -265,7 +463,7 @@ int main(void) {
     memcpy(&camera_fwd, &camera_fwd_reset, sizeof(v3_t));
     v3_t camera_left_reset = { .x = 0, .y = -1, .z = 0 };
     v3_t camera_left;
-    memcpy(&camera_left, &camera_left_reset, sizeof(v3_t));
+    memcpy(&camera_left, &camera_left_reset, sizeof(v3_t)); // TODO necessary? we know it from the cross product
     v3_t camera_up_reset = { .x = 0, .y = 0, .z = 1 };
     v3_t camera_up;
     memcpy(&camera_up, &camera_up_reset, sizeof(v3_t));
@@ -339,13 +537,9 @@ int main(void) {
             span_y_exit_table[y] = NULL;
         }
 
-        // The screen exists on a plane "in front of" the camera.
-        v3_t screen_center;
-        v3_add(&camera_pos, &camera_fwd, &screen_center);
-
-        int n_skipped_triangles = 0;
-        int n_skipped_triangles_by_backface_cull = 0;
-        int n_skipped_triangles_by_near_plane = 0;
+        n_skipped_triangles = 0;
+        n_skipped_triangles_by_backface_cull = 0;
+        n_skipped_triangles_by_near_plane = 0;
 
         n_screen_triangles = 0;
         for (int i = 0; i < n_tris; i++) {
@@ -354,196 +548,10 @@ int main(void) {
             for (int j = 0; j < 3; j++) {
                 memcpy(&triangle.v[j], &verts[tris[i][j]], sizeof(v3_t));
             }
-
-            // Do backface culling: a triangle facing the wrong way from the
-            // camera (according to its normal) doesn't get rendered.
-            v3_t v1, v2;
-            v3_sub(&triangle.v[0], &triangle.v[1], &v1);
-            v3_sub(&triangle.v[0], &triangle.v[2], &v2);
-            v3_t normal;
-            v3_cross(&v2, &v1, &normal);
-            if (v3_dot(&camera_fwd, &normal) < 0) {
-                n_skipped_triangles++;
-                n_skipped_triangles_by_backface_cull++;
-                continue;
-            }
-
-            // Turn each arbitrary triangle into triangles suitable for
-            // rendering, by clipping away the parts that cannot be correctly
-            // rendered.
-            int n_inside = 0, inside[3],
-                n_outside = 0, outside[3];
-            for (int j = 0; j < 3; j++) {
-                // Calculate signed distance to figure out which side of the
-                // screen plane the vertex is on.
-                v3_t screen_to_v;
-                v3_sub(&triangle.v[j], &screen_center, &screen_to_v);
-                double d = v3_dot(&screen_to_v, &camera_fwd);
-                if (d < 0) {
-                    inside[n_inside++] = j;
-                    ASSERT(n_inside <= 3);
-                } else {
-                    outside[n_outside++] = j;
-                    ASSERT(n_outside <= 3);
-                }
-            }
-
-            int n_clipped_triangles = 0;
-            triangle_t clipped_triangles[2];
-            if (n_inside == 0) {
-                // This triangle is fine as-is.
-                n_clipped_triangles = 1;
-                memcpy(&clipped_triangles[0], &triangle, sizeof(triangle_t));
-            } else if (n_inside == 1) {
-                ASSERT(n_outside == 2);
-                // If one point is inside (v3), then when we clip the triangle
-                // it becomes a quadrilateral. The quadrilateral has two of the
-                // original vertices, and an additional 2 vertices (named u1,
-                // u2) at the point where (v3, v1) and (v3, v2) intersect the
-                // screen plane.
-                v3_t *v3 = &triangle.v[inside[0]];
-                v3_t *v1 = &triangle.v[outside[0]];
-                v3_t v1_to_v3;
-                v3_sub(v3, v1, &v1_to_v3);
-                v3_t u1;
-                // v1 and v3 are on opposite sides of the camera plane, so
-                // v3-v1 and the camera plane cannot be parallel.
-                ASSERT(ray_plane(&screen_center, &camera_fwd, v1, &v1_to_v3, &u1));
-                v3_t *v2 = &triangle.v[outside[1]];
-                v3_t v2_to_v3;
-                v3_sub(v3, v2, &v2_to_v3);
-                v3_t u2;
-                // Ditto, see above.
-                ASSERT(ray_plane(&screen_center, &camera_fwd, v2, &v2_to_v3, &u2));
-                // We can't render a quadrilateral, but we can split it into
-                // two triangles. Since we know that the perimeter of the
-                // quadrilateral is formed by visiting v1, v2, u2, u1 in that
-                // order, we know that we can form two triangles (v1, v2, u2)
-                // and (u2, u1, v1).
-                n_clipped_triangles = 2;
-                memcpy(&clipped_triangles[0].v[0], v1, sizeof(v3_t));
-                memcpy(&clipped_triangles[0].v[1], v2, sizeof(v3_t));
-                memcpy(&clipped_triangles[0].v[2], &u2, sizeof(v3_t));
-                memcpy(&clipped_triangles[1].v[0], &u2, sizeof(v3_t));
-                memcpy(&clipped_triangles[1].v[1], &u1, sizeof(v3_t));
-                memcpy(&clipped_triangles[1].v[2], v1, sizeof(v3_t));
-            } else if (n_inside == 2) {
-                ASSERT(n_outside == 1);
-                // if two points inside (v1, v2), then make one triangle (v3, u1, u2)
-                v3_t *v3 = &triangle.v[outside[0]];
-                v3_t *v1 = &triangle.v[inside[0]];
-                v3_t v1_to_v3;
-                v3_sub(v3, v1, &v1_to_v3);
-                v3_t u1;
-                // v1 and v3 are on opposite sides of the camera plane, so
-                // v3-v1 and the camera plane cannot be parallel.
-                ASSERT(ray_plane(&screen_center, &camera_fwd, v1, &v1_to_v3, &u1));
-                v3_t *v2 = &triangle.v[inside[1]];
-                v3_t v2_to_v3;
-                v3_sub(v3, v2, &v2_to_v3);
-                v3_t u2;
-                // Ditto, see above.
-                ASSERT(ray_plane(&screen_center, &camera_fwd, v2, &v2_to_v3, &u2));
-                n_clipped_triangles = 1;
-                memcpy(&clipped_triangles[0].v[0], v3, sizeof(v3_t));
-                memcpy(&clipped_triangles[0].v[1], &u1, sizeof(v3_t));
-                memcpy(&clipped_triangles[0].v[2], &u2, sizeof(v3_t));
-            } else if (n_inside == 3) {
-                // Just don't render this triangle.
-                ASSERT(n_outside == 0);
-                n_skipped_triangles++;
-                n_skipped_triangles_by_near_plane++;
-            } else {
-                ASSERT(0);
-            }
-            ASSERT((n_clipped_triangles >= 0) && (n_clipped_triangles <= 2));
-
-                // Anything on the same side of the screen plane is the camera is "inside the camera".
-                //We can't render (partially or
-                // completely) inside objects correctly, and we have to do something about it. Example:
-                
-                    /*
-                              v1 . . . . . . . v2
-                               .               .
-                                .             .
-                    _*___________.___________.____ camera plane
-                                  .         .
-                                   .       .
-                           \cam/    .     .
-                                     .   .
-                                      . .
-                                       v3
-
-                    in this case, cam->v3 does intersect the plane, but the
-                    intersection point is to the left (see *), which results in
-                    an unintuitive and weird render, given that the other
-                    vertices of the triangle will be projected onto the right of the screen.
-
-                    however, not rendering any part of the triangle would also
-                    look bad. to make this triangle renderable, we can remove the part of
-                    the triangle that won't render properly, which in this case
-                    results in a quadrilateral. We can split it into two
-                    nonoverlapping triangles.
-
-                              v1 . . . . . . . v2
-                               .'  ,           .
-                                .     ' .     .
-                    _____________. . . . . .'.____ camera plane
-
-
-                           \cam/
-
-                    there are three cases in total for how to do this culling,
-                    depending on how many vertices (in this case, 1) are
-                    "inside".
-                    */
-
-                // side_of_plane(screen_center, camera_fwd, point) is negative
-                // if point is between the camera and the screen plane
-                // ("inside" the camera). 
-
-            // Project each clipped triangle into screen space.
-            for (int j = 0; j < n_clipped_triangles; j++) {
-            for (int k = 0; k < 3; k++) {
-                v3_t *v = &clipped_triangles[j].v[k];
-
-                // Project this vertex into screen space: draw a ray from the
-                // vertex to the camera, intersecting with a plane (the
-                // screen).
-                v3_t camera_pos_to_v;
-                v3_sub(v, &camera_pos, &camera_pos_to_v);
-                v3_t poi;
-                if (ray_plane(&screen_center, &camera_fwd, &camera_pos, &camera_pos_to_v, &poi)) {
-                    // Find the intersection, relative to the plane center.
-                    v3_t poi_rel;
-                    v3_sub(&poi, &screen_center, &poi_rel);
-
-                    // Put this vertex into screenspace.
-                    double half_screen_w = FAKESCREEN_W / 2,
-                           half_screen_h = FAKESCREEN_H / 2;
-                    screen_triangles[n_screen_triangles].v[k].x = half_screen_w - (v3_dot(&poi_rel, &camera_left) * half_screen_w);
-                    screen_triangles[n_screen_triangles].v[k].y = half_screen_h + (v3_dot(&poi_rel, &camera_up) * half_screen_h);
-                    // If the vertex is behind the camera, then the distance
-                    // should be negative.  i dont think this is right TODO maybe remove this assert
-                    double z = v3_dot(&camera_pos_to_v, &camera_fwd);
-                    ASSERT(z >= 0);
-                    screen_triangles[n_screen_triangles].v[k].z = z;
-
-                    // For debugging purposes, give every triangle a different color.
-                    screen_triangles[n_screen_triangles].r = (i * 13) % 0xff;
-                    screen_triangles[n_screen_triangles].g = (i * 101) % 0xff;
-                    screen_triangles[n_screen_triangles].b = (i * 211) % 0xff;
-                } else {
-                    // If the ray doesn't project onto the screen, it's because
-                    // the ray is parallel to the screen, so it will be
-                    // perpendicular to the screen normal.
-                    ASSERT(0);
-                }
-            }
-            ASSERT(++n_screen_triangles < NUM_SCREEN_TRIANGLES);
-            }
+            draw(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
         }
 
+        
         // Turn each screen triangle into one or two spans.
         num_spans = 0;
         num_pointup_spans = 0;
