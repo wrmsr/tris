@@ -34,7 +34,10 @@ typedef struct {
 } render_frame_stats_t;
 
 typedef struct {
-    v3_t v[3];
+    struct {
+        v3_t xyz;
+        double u, v;
+    } abc[3];
 } triangle_t;
 
 // Triangles in screen space, the visible area of which is (0, 0) (screen
@@ -42,12 +45,22 @@ typedef struct {
 typedef struct {
     int16_t x, y;
     double z;
+    double u, v;
 } screen_vertex_t;
 
 typedef struct {
     screen_vertex_t v[3];
     uint8_t r, g, b;
 } screen_triangle_t;
+
+typedef struct {
+    uint8_t r, g, b, a;
+} rgba_t;
+
+typedef struct {
+    rgba_t *texture;
+    int w, h;
+} material_t;
 
 // Any triangle can be decomposed into one or two triangles with a flat top or
 // bottom (a "span"). A span is simple and fast to draw.
@@ -59,7 +72,9 @@ typedef struct span_t {
     double dx_dy_hi;
     double dz_dy_lo;
     double dz_dx_lo;
-    //screen_triangle_t *parent; // the triangle this span comes from, so that we can do texture/attribute/etc lookups
+
+    double bary_ref, bary_left, bary_right;
+    material_t *material;
 
     // We'll insert spans in a linked list (the "y range table"). That table
     // indicates on which y-value spans begin and end, to speed up the raster
@@ -73,8 +88,8 @@ typedef struct span_t {
 } span_t;
 
 void render_begin_frame(void);
-void render_draw_screen_triangle(screen_triangle_t *);
-void render_draw_triangle(v3_t *, v3_t *, v3_t *, v3_t *, triangle_t *);
+void render_draw_screen_triangle(screen_triangle_t *, material_t *);
+void render_draw_triangle(v3_t *, v3_t *, v3_t *, v3_t *, triangle_t *, material_t *);
 void render_end_frame(void);
 void render_print_stats(void);
 

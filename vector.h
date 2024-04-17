@@ -5,7 +5,7 @@ typedef union {
     struct {
         double x, y, z;
     };
-    double v3[3];
+    double v3[3];  // xyz
 } v3_t;
 
 void v3_add(v3_t *, v3_t *, v3_t *);

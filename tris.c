@@ -81,6 +81,20 @@ typedef struct {
 
 int main(void) {
     load_obj("cow-nonormals.obj", 1, 0, 0, -M_PI / 2);
+    material_t mat = {
+        .w = 64,
+        .h = 64,
+        .texture = malloc(sizeof(rgba_t) * 64 * 64),
+    };
+    for (int y = 0; y < 64; y++) {
+        for (int x = 0; x < 64; x++) {
+            rgba_t *rgba = &(mat.texture[(y * 64) + x]);
+            rgba->r = (x % 16) * 16;
+            rgba->g = (y % 16) * 16;
+            rgba->b = 0;
+            rgba->a = 0;
+        }
+    }
 
     ASSERT(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) == 0);
     SDL_Window *sdl_window = SDL_CreateWindow("aspng", 0, 0, 100, 100, SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
@@ -161,9 +175,9 @@ int main(void) {
             // Build the triangle to be rendered.
             triangle_t triangle;
             for (int j = 0; j < 3; j++) {
-                memcpy(&triangle.v[j], &verts[tris[i][j]], sizeof(v3_t));
+                memcpy(&triangle.abc[j], &verts[tris[i][j]], sizeof(v3_t));
             }
-            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
+            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle, &mat);
         }
 
         // Draw all spans to the screen, respecting the z-buffer.
@@ -216,9 +230,13 @@ int main(void) {
                         if (z < min_z) {
                             min_z = z;
                         }
-                        texture[off].r = 0; //span->parent->r;
+                        //v3_t p = { .x = x, .y = y, .z = z };
+                        //double u, v, w;
+                        //barycentric(&p, span->triangle_a, span->triangle_b, span->triangle_c, &u, &v, &w);
+                        //span->triangle_u
+                        texture[off].r = span->material->texture[17].r; //span->parent->r;
                         texture[off].g = 0; //span->parent->g;
-                        texture[off].b = 255; //span->parent->b;
+                        texture[off].b = 0; //span->parent->b;
                         render_stats.pixels_drawn++;
                         render_frame_stats.pixels_drawn++;
                     } else {
