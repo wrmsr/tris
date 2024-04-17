@@ -103,11 +103,13 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     float dsx_dsy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
     // The dx/dy slope for drawing the right side of the triangle:
     float dsx_dsy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
-    // The dz/dy slope for the depth of the left side of the triangle:
-    float doz_dsy_lo = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
-    // The dz/dx slope for the depth along one row of the triangle:
-    float doz_dsx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    //float object_dx_dy_lo = ;
+    // The dz/dy slope for the depth per screen y:
+    float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
+    // The dz/dx slope for the depth per screen x:
+    float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
+    // The dx/dx slope for screen to object space.
+    //float dox_dsx = ;
+    // The dy/dy slope for screen to object space.
     //float object_dx_dy_hi = ;
     span.triangle = triangle;
 
@@ -122,11 +124,11 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                     x_fill_lo = 0;
                 if (x_fill_hi > FAKESCREEN_W - 1)
                     x_fill_hi = FAKESCREEN_W - 1;
-                double z_lo = span.ref.z + (doz_dsy_lo * (y - span.ref.y));
+                double z_lo = span.ref.z + (doz_dsy * (y - span.ref.y));
                 for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
                     // Do a z-check before we draw the pixel.
                     int off = (y * FAKESCREEN_W) + x;
-                    double z = z_lo + (doz_dsx_lo * (x - x_fill_lo));
+                    double z = z_lo + (doz_dsx * (x - x_fill_lo));
                     if ((z < depth_buffer[off]) && (z >= 0)) {
                         depth_buffer[off] = z;
                         if (z > max_z) {
