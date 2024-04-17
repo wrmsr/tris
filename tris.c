@@ -81,14 +81,14 @@ typedef struct {
 
 int main(void) {
     load_obj("cow-nonormals.obj", 1, 0, 0, -M_PI / 2);
-    material_t mat = {
+    material_t material = {
         .w = 64,
         .h = 64,
         .texture = malloc(sizeof(rgba_t) * 64 * 64),
     };
     for (int y = 0; y < 64; y++) {
         for (int x = 0; x < 64; x++) {
-            rgba_t *rgba = &(mat.texture[(y * 64) + x]);
+            rgba_t *rgba = &(material.texture[(y * 64) + x]);
             rgba->r = (x % 16) * 16;
             rgba->g = (y % 16) * 16;
             rgba->b = 0;
@@ -173,11 +173,14 @@ int main(void) {
         render_begin_frame();
         for (int i = 0; i < n_tris; i++) {
             // Build the triangle to be rendered.
-            triangle_t triangle;
+            triangle_t *triangle = render_add_triangle();
             for (int j = 0; j < 3; j++) {
-                memcpy(&triangle.abc[j], &verts[tris[i][j]], sizeof(v3_t));
+                memcpy(&(triangle->abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
+                triangle->abc[j].uv.u = 0;
+                triangle->abc[j].uv.v = 0;
+                triangle->material = &material;
             }
-            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle, &mat);
+            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, triangle);
         }
 
         // Draw all spans to the screen, respecting the z-buffer.
@@ -234,7 +237,7 @@ int main(void) {
                         //double u, v, w;
                         //barycentric(&p, span->triangle_a, span->triangle_b, span->triangle_c, &u, &v, &w);
                         //span->triangle_u
-                        texture[off].r = span->material->texture[17].r; //span->parent->r;
+                        texture[off].r = span->triangle->material->texture[15].r; //span->parent->r;
                         texture[off].g = 0; //span->parent->g;
                         texture[off].b = 0; //span->parent->b;
                         render_stats.pixels_drawn++;

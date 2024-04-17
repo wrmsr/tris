@@ -14,9 +14,12 @@ render_stats_t render_stats = {
 render_frame_stats_t render_frame_stats;
 
 extern int num_spans;
+triangle_t triangle_pool[TRIANGLE_POOL_SIZE];
+int triangle_pool_used;
 
 void render_begin_frame(void) {
     num_spans = 0;
+    triangle_pool_used = 0;
 
     if (render_stats.start_time < 0) {
         render_stats.start_time = time_now();
@@ -33,11 +36,16 @@ void render_begin_frame(void) {
     render_frame_stats.num_degenerate_triangles = 0;
 }
 
+triangle_t *render_add_triangle(void) {
+    ASSERT(triangle_pool_used < TRIANGLE_POOL_SIZE);
+    return &(triangle_pool[triangle_pool_used++]);
+}
+
 extern span_t spans[];
 extern span_t *span_y_entry_table[];
 extern span_t *span_y_exit_table[];
 
-void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, material_t *mat) {
+void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, triangle_t *triangle) {
     ASSERT((hi == NULL) != (lo == NULL));
     screen_vertex_t *hi_or_lo = (hi != NULL ? hi : lo);
     // Of the other two vertices, which is on the left, and which is on the
@@ -71,7 +79,7 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
     span->dx_dy_hi = (span->ref.x - x_hi_vert->x) / (double)(span->ref.y - x_hi_vert->y);
     span->dz_dy_lo = (span->ref.z - x_lo_vert->z) / (double)(span->ref.y - x_lo_vert->y);
     span->dz_dx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    span->material = mat;
+    span->triangle = triangle;
     ASSERT(++num_spans < NUM_SPANS);
 
     int clamped_y_lo = MAX(0, MIN(FAKESCREEN_H - 1, span->y_lo));
@@ -82,7 +90,7 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
     span_y_exit_table[clamped_y_hi] = span;
 }
 
-void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle, material_t *mat) {
+void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
     // The screen exists on a plane "in front of" the camera.
     v3_t screen_center;
     v3_add(camera_pos, camera_fwd, &screen_center);
@@ -190,6 +198,7 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
     // Project each clipped triangle into screen space.
     for (int j = 0; j < n_clipped_triangles; j++) {
         screen_triangle_t screen_triangle;
+        screen_triangle.parent = triangle;
         for (int k = 0; k < 3; k++) {
             v3_t *v = &(clipped_triangles[j].abc[k].xyz);
 
@@ -208,8 +217,6 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
                        half_screen_h = FAKESCREEN_H / 2;
                 screen_triangle.v[k].x = half_screen_w - (v3_dot(&poi_rel, camera_left) * half_screen_w);
                 screen_triangle.v[k].y = half_screen_h + (v3_dot(&poi_rel, camera_up) * half_screen_h);
-                //screen_triangle.v[k].u = clipped_triangles[j].u;
-                //screen_triangle.v[k].v = clipped_triangles[j].v;
                 // If the vertex is behind the camera, then the distance should
                 // be negative.  i dont think this is right TODO maybe remove
                 // this assert
@@ -229,11 +236,11 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
                 ASSERT(0);
             }
         }
-        render_draw_screen_triangle(&screen_triangle, mat);
+        render_draw_screen_triangle(&screen_triangle);
     }
 }
 
-void render_draw_screen_triangle(screen_triangle_t *screen_triangle, material_t *mat) {
+void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
     // Pick a vertex that is above all other vertices.
     screen_vertex_t *a = &(screen_triangle->v[0]);
     screen_vertex_t *b = &(screen_triangle->v[1]);
@@ -271,9 +278,9 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle, material_t 
     //      *
     if ((hi == NULL) != (lo == NULL)) {
         if (hi != NULL) {
-            add_span(a, b, c, hi, NULL, mat);
+            add_span(a, b, c, hi, NULL, screen_triangle->parent);
         } else if (lo != NULL) {
-            add_span(a, b, c, NULL, lo, mat);
+            add_span(a, b, c, NULL, lo, screen_triangle->parent);
         } else ASSERT(0);
         render_frame_stats.num_onespan_triangles++;
     }
@@ -295,8 +302,8 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle, material_t 
             .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
         };
         // Create two spans!
-        add_span(hi, mid, &split, hi, NULL, mat);
-        add_span(lo, mid, &split, NULL, lo, mat);
+        add_span(hi, mid, &split, hi, NULL, screen_triangle->parent);
+        add_span(lo, mid, &split, NULL, lo, screen_triangle->parent);
         render_frame_stats.num_twospan_triangles++;
     }
 }
