@@ -1,3 +1,4 @@
+#include <float.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -13,12 +14,10 @@ render_stats_t render_stats = {
 
 render_frame_stats_t render_frame_stats;
 
-extern int num_spans;
 triangle_t triangle_pool[TRIANGLE_POOL_SIZE];
 int triangle_pool_used;
 
 void render_begin_frame(void) {
-    num_spans = 0;
     triangle_pool_used = 0;
 
     if (render_stats.start_time < 0) {
@@ -28,6 +27,7 @@ void render_begin_frame(void) {
     render_frame_stats.n_skipped_triangles = 0;
     render_frame_stats.n_skipped_triangles_by_backface_cull = 0;
     render_frame_stats.n_skipped_triangles_by_near_plane = 0;
+    render_frame_stats.num_spans = 0;
     render_frame_stats.num_pointup_spans = 0;
     render_frame_stats.num_pointdown_spans = 0;
     render_frame_stats.num_degenerate_spans = 0;
@@ -41,16 +41,16 @@ triangle_t *render_add_triangle(void) {
     return &(triangle_pool[triangle_pool_used++]);
 }
 
-extern span_t spans[];
-extern span_t *span_y_entry_table[];
-extern span_t *span_y_exit_table[];
+extern double *depth_buffer;
+extern gl_rgb_t *texture;
 
-void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, triangle_t *triangle) {
+void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, triangle_t *triangle) {
+    render_frame_stats.num_spans++;
     ASSERT((hi == NULL) != (lo == NULL));
     screen_vertex_t *hi_or_lo = (hi != NULL ? hi : lo);
     // Of the other two vertices, which is on the left, and which is on the
     // right?
-    span_t *span = &spans[num_spans];
+    span_t span;
     screen_vertex_t *other1 = (a == hi_or_lo ? b : a);
     screen_vertex_t *other2 = (other1 == b ? c : (b == hi_or_lo ? c : b));
     screen_vertex_t *x_lo_vert, *x_hi_vert;
@@ -67,27 +67,66 @@ void add_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen
     }
     if (hi != NULL) {
         render_frame_stats.num_pointdown_spans++;
-        span->y_lo = other1->y; // or other2[1], doesn't matter.
-        span->y_hi = hi->y;
+        span.y_lo = MAX(0, MIN(FAKESCREEN_H, other1->y)); // or other2[1], doesn't matter.
+        span.y_hi = MAX(0, MIN(FAKESCREEN_H, hi->y));
     } else {
         render_frame_stats.num_pointup_spans++;
-        span->y_lo = lo->y;
-        span->y_hi = other1->y; // or other2[1], doesn't matter.
+        span.y_lo = MAX(0, MIN(FAKESCREEN_H, lo->y));
+        span.y_hi = MAX(0, MIN(FAKESCREEN_H, other1->y)); // or other2[1], doesn't matter.
     }
-    memcpy(&(span->ref), hi_or_lo, sizeof(span->ref));
-    span->dx_dy_lo = (span->ref.x - x_lo_vert->x) / (double)(span->ref.y - x_lo_vert->y);
-    span->dx_dy_hi = (span->ref.x - x_hi_vert->x) / (double)(span->ref.y - x_hi_vert->y);
-    span->dz_dy_lo = (span->ref.z - x_lo_vert->z) / (double)(span->ref.y - x_lo_vert->y);
-    span->dz_dx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    span->triangle = triangle;
-    ASSERT(++num_spans < NUM_SPANS);
+    memcpy(&(span.ref), hi_or_lo, sizeof(span.ref));
+    span.dx_dy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
+    span.dx_dy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
+    span.dz_dy_lo = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
+    span.dz_dx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
+    span.triangle = triangle;
 
-    int clamped_y_lo = MAX(0, MIN(FAKESCREEN_H - 1, span->y_lo));
-    int clamped_y_hi = MAX(0, MIN(FAKESCREEN_H - 1, span->y_hi));
-    span->next_span_y_entry = span_y_entry_table[clamped_y_lo];
-    span_y_entry_table[clamped_y_lo] = span;
-    span->next_span_y_exit = span_y_exit_table[clamped_y_hi];
-    span_y_exit_table[clamped_y_hi] = span;
+    // Draw the spans to the screen, respecting the z-buffer.
+    double min_z = DBL_MAX;
+    double max_z = -DBL_MAX;
+    for (int y = span.y_lo; y < span.y_hi; y++) {
+                int16_t x_fill_lo = span.ref.x + (span.dx_dy_lo * (y - span.ref.y));
+                int16_t x_fill_hi = span.ref.x + (span.dx_dy_hi * (y - span.ref.y));
+                ASSERT(x_fill_lo <= x_fill_hi);
+                if (x_fill_lo < 0)
+                    x_fill_lo = 0;
+                if (x_fill_hi > FAKESCREEN_W - 1)
+                    x_fill_hi = FAKESCREEN_W - 1;
+                double z_lo = span.ref.z + (span.dz_dy_lo * (y - span.ref.y));
+                for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
+                    // Do a z-check before we draw the pixel.
+                    int off = (y * FAKESCREEN_W) + x;
+                    double z = z_lo + (span.dz_dx_lo * (x - x_fill_lo));
+                    if ((z < depth_buffer[off]) && (z >= 0)) {
+                        //depth_buffer[off] = z;
+                        if (z > max_z) {
+                            max_z = z;
+                        }
+                        if (z < min_z) {
+                            min_z = z;
+                        }
+                        //v3_t p = { .x = x, .y = y, .z = z };
+                        //double b1, b2, b3;
+                        //printf("p = {%i, %i, %f}\n", x, y, z);
+                        //barycentric(&p, span.triangle, &b1, &b2, &b3);
+                        double u = 0; //(b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
+                        // TODO assert?
+                        u = MAX(0, MIN(span.triangle->material->w, u));
+                        double v = 0; //(b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
+                        v = MAX(0, MIN(span.triangle->material->h, v));
+                        int tex_off = u + (v * span.triangle->material->w);
+                        (void)tex_off;
+                        texture[off].r = span.triangle->material->texture[15].r;
+                        texture[off].g = 0; //span.parent->g;
+                        texture[off].b = 0; //span.parent->b;
+                        render_stats.pixels_drawn++;
+                        render_frame_stats.pixels_drawn++;
+                    } else {
+                        render_stats.pixels_rejected_by_z++;
+                        render_frame_stats.pixels_rejected_by_z++;
+                    }
+                }
+    }
 }
 
 void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
@@ -278,9 +317,9 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
     //      *
     if ((hi == NULL) != (lo == NULL)) {
         if (hi != NULL) {
-            add_span(a, b, c, hi, NULL, screen_triangle->parent);
+            draw_span(a, b, c, hi, NULL, screen_triangle->parent);
         } else if (lo != NULL) {
-            add_span(a, b, c, NULL, lo, screen_triangle->parent);
+            draw_span(a, b, c, NULL, lo, screen_triangle->parent);
         } else ASSERT(0);
         render_frame_stats.num_onespan_triangles++;
     }
@@ -302,8 +341,8 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
             .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
         };
         // Create two spans!
-        add_span(hi, mid, &split, hi, NULL, screen_triangle->parent);
-        add_span(lo, mid, &split, NULL, lo, screen_triangle->parent);
+        draw_span(hi, mid, &split, hi, NULL, screen_triangle->parent);
+        draw_span(lo, mid, &split, NULL, lo, screen_triangle->parent);
         render_frame_stats.num_twospan_triangles++;
     }
 }
@@ -319,7 +358,7 @@ void render_end_frame(void) {
         render_stats.frames_drawn, time_now() - render_frame_stats.start_time,
         render_frame_stats.n_skipped_triangles, render_frame_stats.n_skipped_triangles_by_backface_cull, render_frame_stats.n_skipped_triangles_by_near_plane,
         render_frame_stats.num_triangles, render_frame_stats.num_onespan_triangles, render_frame_stats.num_twospan_triangles, render_frame_stats.num_degenerate_triangles,
-        num_spans, render_frame_stats.num_pointup_spans, render_frame_stats.num_pointdown_spans, render_frame_stats.num_degenerate_spans,
+        render_frame_stats.num_spans, render_frame_stats.num_pointup_spans, render_frame_stats.num_pointdown_spans, render_frame_stats.num_degenerate_spans,
         (double)render_frame_stats.pixels_rejected_by_z,
         (double)render_frame_stats.pixels_drawn
     );

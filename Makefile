@@ -8,8 +8,6 @@ bin:
 bin/tris: obj/common.o obj/render.o obj/tris.o obj/vector.o | bin
 	$(CC) $^ -o $@ -lSDL2 -lm -lGL
 	stat -c %s $@
-	strip --strip-unneeded $@
-	stat -c %s $@
 
 obj:
 	mkdir obj

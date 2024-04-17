@@ -10,12 +10,6 @@
 extern render_stats_t render_stats;
 extern render_frame_stats_t render_frame_stats;
 
-span_t spans[NUM_SPANS];
-int num_spans;
-
-span_t *span_y_entry_table[FAKESCREEN_H];
-span_t *span_y_exit_table[FAKESCREEN_H];
-
 #define MAX_VERTS 10000
 v3_t verts[MAX_VERTS];
 int n_verts = 0;
@@ -107,9 +101,8 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
     //ASSERT(*b1 + *b2 + *b3 == 1);
 }
 
-typedef struct {
-    GLubyte r, g, b;
-} gl_rgb_t;
+double *depth_buffer = NULL;
+gl_rgb_t *texture = NULL;
 
 int main(void) {
     load_obj("cow-nonormals.obj", 1, 0, 0, -M_PI / 2);
@@ -135,8 +128,8 @@ int main(void) {
     GLuint screen_texture;
     glGenTextures(1, &screen_texture);
 
-    double *depth_buffer = malloc(sizeof(double) * FAKESCREEN_W * FAKESCREEN_H);
-    gl_rgb_t *texture = malloc(sizeof(gl_rgb_t) * FAKESCREEN_W * FAKESCREEN_H);
+    depth_buffer = malloc(sizeof(double) * FAKESCREEN_W * FAKESCREEN_H);
+    texture = malloc(sizeof(gl_rgb_t) * FAKESCREEN_W * FAKESCREEN_H);
 
     v3_t camera_pos = { .x = -10, .y = 0, .z = 0 };
     v3_t camera_fwd_reset = { .x = 1, .y = 0, .z = 0 };
@@ -197,11 +190,6 @@ int main(void) {
             }
         }
 
-        for (int y = 0; y < FAKESCREEN_H; y++) {
-            span_y_entry_table[y] = NULL;
-            span_y_exit_table[y] = NULL;
-        }
-
         render_begin_frame();
         for (int i = 0; i < n_tris; i++) {
             // Build the triangle to be rendered.
@@ -213,80 +201,6 @@ int main(void) {
                 triangle->material = &material;
             }
             render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, triangle);
-        }
-
-        // Draw all spans to the screen, respecting the z-buffer.
-        for (int i = 0; i < num_spans; i++) {
-            spans[i].next_active_span = NULL;
-            spans[i].prev_active_span = NULL;
-        }
-        span_t *active_span_table = NULL;
-        double min_z = DBL_MAX;
-        double max_z = -DBL_MAX;
-        for (int y = 0; y < FAKESCREEN_H; y++) {
-            // Add spans which are starting.
-            for (span_t *span = span_y_entry_table[y]; span != NULL; span = span->next_span_y_entry) {
-                span->next_active_span = active_span_table;
-                span->prev_active_span = NULL;
-                if (active_span_table != NULL)
-                    active_span_table->prev_active_span = span;
-                active_span_table = span;
-            }
-
-            // Remove spans which are ending.
-            for (span_t *span = span_y_exit_table[y]; span != NULL; span = span->next_span_y_exit) {
-                if (span->prev_active_span != NULL)
-                    span->prev_active_span->next_active_span = span->next_active_span;
-                else
-                    active_span_table = span->next_active_span;
-                if (span->next_active_span != NULL)
-                    span->next_active_span->prev_active_span = span->prev_active_span;
-            }
-
-            // Render every active span.
-            for (span_t *span = active_span_table; span != NULL; span = span->next_active_span) {
-                int16_t x_fill_lo = span->ref.x + (span->dx_dy_lo * (y - span->ref.y));
-                int16_t x_fill_hi = span->ref.x + (span->dx_dy_hi * (y - span->ref.y));
-                ASSERT(x_fill_lo <= x_fill_hi);
-                if (x_fill_lo < 0)
-                    x_fill_lo = 0;
-                if (x_fill_hi > FAKESCREEN_W - 1)
-                    x_fill_hi = FAKESCREEN_W - 1;
-                double z_lo = span->ref.z + (span->dz_dy_lo * (y - span->ref.y));
-                for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
-                    // Do a z-check before we draw the pixel.
-                    int off = (y * FAKESCREEN_W) + x;
-                    double z = z_lo + (span->dz_dx_lo * (x - x_fill_lo));
-                    if ((z < depth_buffer[off]) && (z >= 0)) {
-                        depth_buffer[off] = z;
-                        if (z > max_z) {
-                            max_z = z;
-                        }
-                        if (z < min_z) {
-                            min_z = z;
-                        }
-                        //v3_t p = { .x = x, .y = y, .z = z };
-                        //double b1, b2, b3;
-                        //printf("p = {%i, %i, %f}\n", x, y, z);
-                        //barycentric(&p, span->triangle, &b1, &b2, &b3);
-                        double u = 0; //(b1 * span->triangle->a.uv.u) + (b2 * span->triangle->b.uv.u) + (b3 * span->triangle->c.uv.u);
-                        // TODO assert?
-                        u = MAX(0, MIN(span->triangle->material->w, u));
-                        double v = 0; //(b1 * span->triangle->a.uv.v) + (b2 * span->triangle->b.uv.v) + (b3 * span->triangle->c.uv.v);
-                        v = MAX(0, MIN(span->triangle->material->h, v));
-                        int tex_off = u + (v * span->triangle->material->w);
-                        (void)tex_off;
-                        texture[off].r = span->triangle->material->texture[15].r;
-                        texture[off].g = 0; //span->parent->g;
-                        texture[off].b = 0; //span->parent->b;
-                        render_stats.pixels_drawn++;
-                        render_frame_stats.pixels_drawn++;
-                    } else {
-                        render_stats.pixels_rejected_by_z++;
-                        render_frame_stats.pixels_rejected_by_z++;
-                    }
-                }
-            }
         }
 
         glEnable(GL_TEXTURE_2D);

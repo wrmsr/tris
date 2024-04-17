@@ -25,6 +25,7 @@ typedef struct {
     int num_onespan_triangles;
     int num_twospan_triangles;
     int num_degenerate_triangles;
+    int num_spans;
     int num_pointup_spans;
     int num_pointdown_spans;
     int num_degenerate_spans;
@@ -65,6 +66,10 @@ typedef struct {
     int16_t x, y;
     double z;
 } screen_vertex_t;
+
+typedef struct {
+    uint8_t r, g, b;
+} gl_rgb_t; // smush into the other rgb type
 
 typedef struct {
     screen_vertex_t v[3];
