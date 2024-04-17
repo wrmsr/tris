@@ -69,38 +69,6 @@ void load_obj(char *fn, double scale, double yaw, double pitch, double roll) {
     ASSERT(ferror(fp) == 0);
 }
 
-// https://gamedev.stackexchange.com/a/23745
-void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *b3) {
-    v3_t v0;
-    /*printf("point: {%f, %f, %f}\n",
-        p->x, p->y, p->z);
-    printf("triangle: {%f, %f, %f} , {%f, %f, %f} , {%f, %f, %f}\n",
-        triangle->b.xyz.x, triangle->b.xyz.y, triangle->b.xyz.z,
-        triangle->c.xyz.x, triangle->c.xyz.y, triangle->c.xyz.z,
-        triangle->a.xyz.x, triangle->a.xyz.y, triangle->a.xyz.z );*/
-    v3_sub(&(triangle->b.xyz), &(triangle->a.xyz), &v0);
-    //printf("v0 = {%f, %f, %f}\n", v0.x, v0.y, v0.z);
-    v3_t v1;
-    v3_sub(&(triangle->c.xyz), &(triangle->a.xyz), &v1);
-    v3_t v2;
-    v3_sub(p, &(triangle->a.xyz), &v2);
-    double d00 = v3_dot(&v0, &v0);
-    double d01 = v3_dot(&v0, &v1);
-    double d11 = v3_dot(&v1, &v1);
-    double d20 = v3_dot(&v2, &v0);
-    double d21 = v3_dot(&v2, &v1);
-    //printf("d00 d01 d11 %f %f %f\n", d00, d01, d11);
-    double denom = (d00 * d11) - (d01 * d01);
-    *b1 = ((d11 * d20) - (d01 * d21)) / denom;
-    //printf("%f, %f\n", denom, *b1);
-    //ASSERT((*b1 >= 0) && (*b1 <= 1));
-    *b2 = ((d00 * d21) - (d01 * d20)) / denom;
-    //ASSERT((*b2 >= 0) && (*b2 <= 1));
-    *b3 = 1. - *b1 - *b2;
-    //ASSERT((*b3 >= 0) && (*b3 <= 1));
-    //ASSERT(*b1 + *b2 + *b3 == 1);
-}
-
 double *depth_buffer = NULL;
 gl_rgb_t *texture = NULL;
 
@@ -193,14 +161,14 @@ int main(void) {
         render_begin_frame();
         for (int i = 0; i < n_tris; i++) {
             // Build the triangle to be rendered.
-            triangle_t *triangle = render_add_triangle();
+            triangle_t triangle;
             for (int j = 0; j < 3; j++) {
-                memcpy(&(triangle->abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
-                triangle->abc[j].uv.u = 0;
-                triangle->abc[j].uv.v = 0;
-                triangle->material = &material;
+                memcpy(&(triangle.abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
+                triangle.abc[j].uv.u = 0;
+                triangle.abc[j].uv.v = 0;
+                triangle.material = &material;
             }
-            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, triangle);
+            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
         }
 
         glEnable(GL_TEXTURE_2D);

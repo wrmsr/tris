@@ -14,12 +14,7 @@ render_stats_t render_stats = {
 
 render_frame_stats_t render_frame_stats;
 
-triangle_t triangle_pool[TRIANGLE_POOL_SIZE];
-int triangle_pool_used;
-
 void render_begin_frame(void) {
-    triangle_pool_used = 0;
-
     if (render_stats.start_time < 0) {
         render_stats.start_time = time_now();
     }
@@ -36,9 +31,36 @@ void render_begin_frame(void) {
     render_frame_stats.num_degenerate_triangles = 0;
 }
 
-triangle_t *render_add_triangle(void) {
-    ASSERT(triangle_pool_used < TRIANGLE_POOL_SIZE);
-    return &(triangle_pool[triangle_pool_used++]);
+// https://gamedev.stackexchange.com/a/23745
+void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *b3) {
+    v3_t v0;
+    printf("point: {%f, %f, %f}\n",
+        p->x, p->y, p->z);
+    printf("triangle: {%f, %f, %f} , {%f, %f, %f} , {%f, %f, %f}\n",
+        triangle->b.xyz.x, triangle->b.xyz.y, triangle->b.xyz.z,
+        triangle->c.xyz.x, triangle->c.xyz.y, triangle->c.xyz.z,
+        triangle->a.xyz.x, triangle->a.xyz.y, triangle->a.xyz.z );
+    v3_sub(&(triangle->b.xyz), &(triangle->a.xyz), &v0);
+    printf("v0 = {%f, %f, %f}\n", v0.x, v0.y, v0.z);
+    v3_t v1;
+    v3_sub(&(triangle->c.xyz), &(triangle->a.xyz), &v1);
+    v3_t v2;
+    v3_sub(p, &(triangle->a.xyz), &v2);
+    double d00 = v3_dot(&v0, &v0);
+    double d01 = v3_dot(&v0, &v1);
+    double d11 = v3_dot(&v1, &v1);
+    double d20 = v3_dot(&v2, &v0);
+    double d21 = v3_dot(&v2, &v1);
+    printf("d00 d01 d11 %f %f %f\n", d00, d01, d11);
+    double denom = (d00 * d11) - (d01 * d01);
+    *b1 = ((d11 * d20) - (d01 * d21)) / denom;
+    printf("%f, %f\n", denom, *b1);
+    ASSERT((*b1 >= 0) && (*b1 <= 1));
+    *b2 = ((d00 * d21) - (d01 * d20)) / denom;
+    ASSERT((*b2 >= 0) && (*b2 <= 1));
+    *b3 = 1. - *b1 - *b2;
+    ASSERT((*b3 >= 0) && (*b3 <= 1));
+    ASSERT(*b1 + *b2 + *b3 == 1);
 }
 
 extern double *depth_buffer;
@@ -75,30 +97,38 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
         span.y_hi = MAX(0, MIN(FAKESCREEN_H, other1->y)); // or other2[1], doesn't matter.
     }
     memcpy(&(span.ref), hi_or_lo, sizeof(span.ref));
-    span.dx_dy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
-    span.dx_dy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
-    span.dz_dy_lo = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
-    span.dz_dx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
+    // This is the slope for the left side of the triangle
+
+    // The dx/dy slope for drawing the left side of the triangle:
+    float dsx_dsy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
+    // The dx/dy slope for drawing the right side of the triangle:
+    float dsx_dsy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
+    // The dz/dy slope for the depth of the left side of the triangle:
+    float doz_dsy_lo = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
+    // The dz/dx slope for the depth along one row of the triangle:
+    float doz_dsx_lo = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
+    //float object_dx_dy_lo = ;
+    //float object_dx_dy_hi = ;
     span.triangle = triangle;
 
     // Draw the spans to the screen, respecting the z-buffer.
     double min_z = DBL_MAX;
     double max_z = -DBL_MAX;
     for (int y = span.y_lo; y < span.y_hi; y++) {
-                int16_t x_fill_lo = span.ref.x + (span.dx_dy_lo * (y - span.ref.y));
-                int16_t x_fill_hi = span.ref.x + (span.dx_dy_hi * (y - span.ref.y));
+                int16_t x_fill_lo = span.ref.x + (dsx_dsy_lo * (y - span.ref.y)); // TODO; this can just be +1 since we're going row by row, no mult needed
+                int16_t x_fill_hi = span.ref.x + (dsx_dsy_hi * (y - span.ref.y));
                 ASSERT(x_fill_lo <= x_fill_hi);
                 if (x_fill_lo < 0)
                     x_fill_lo = 0;
                 if (x_fill_hi > FAKESCREEN_W - 1)
                     x_fill_hi = FAKESCREEN_W - 1;
-                double z_lo = span.ref.z + (span.dz_dy_lo * (y - span.ref.y));
+                double z_lo = span.ref.z + (doz_dsy_lo * (y - span.ref.y));
                 for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
                     // Do a z-check before we draw the pixel.
                     int off = (y * FAKESCREEN_W) + x;
-                    double z = z_lo + (span.dz_dx_lo * (x - x_fill_lo));
+                    double z = z_lo + (doz_dsx_lo * (x - x_fill_lo));
                     if ((z < depth_buffer[off]) && (z >= 0)) {
-                        //depth_buffer[off] = z;
+                        depth_buffer[off] = z;
                         if (z > max_z) {
                             max_z = z;
                         }
@@ -109,14 +139,14 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         //double b1, b2, b3;
                         //printf("p = {%i, %i, %f}\n", x, y, z);
                         //barycentric(&p, span.triangle, &b1, &b2, &b3);
-                        double u = 0; //(b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
+                        //double u = (b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
                         // TODO assert?
-                        u = MAX(0, MIN(span.triangle->material->w, u));
-                        double v = 0; //(b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
-                        v = MAX(0, MIN(span.triangle->material->h, v));
-                        int tex_off = u + (v * span.triangle->material->w);
-                        (void)tex_off;
-                        texture[off].r = span.triangle->material->texture[15].r;
+                        //u = MAX(0, MIN(span.triangle->material->w, u));
+                        //double v = (b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
+                        //v = MAX(0, MIN(span.triangle->material->h, v));
+                        //int tex_off = u + (v * span.triangle->material->w);
+                        //(void)tex_off;
+                        texture[off].r = 255; // span.triangle->material->texture[15].r;
                         texture[off].g = 0; //span.parent->g;
                         texture[off].b = 0; //span.parent->b;
                         render_stats.pixels_drawn++;
