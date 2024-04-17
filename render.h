@@ -52,7 +52,9 @@ typedef struct {
 typedef struct {
     union {
         triangle_coord_t abc[3];
-        triangle_coord_t a, b, c;
+        struct {
+            triangle_coord_t a, b, c;
+        };
     };
     material_t *material;
 } triangle_t;
@@ -76,13 +78,17 @@ typedef struct {
 // bottom (a "span"). A span is simple and fast to draw.
 #define NUM_SPANS 20000
 typedef struct span_t {
+    // screen space: needed for quickly figuring out which pixels on screen to draw
     int16_t y_lo, y_hi;
     screen_vertex_t ref; // this is either the lowest (down pointing span) or highest (up pointing span) point of the span.
     double dx_dy_lo;
     double dx_dy_hi;
+
+    // object space: 
     double dz_dy_lo;
     double dz_dx_lo;
 
+    // needed for materials, original triangle coords for texture mapping, etc
     triangle_t *triangle;
 
     // We'll insert spans in a linked list (the "y range table"). That table

@@ -78,7 +78,14 @@ void load_obj(char *fn, double scale, double yaw, double pitch, double roll) {
 // https://gamedev.stackexchange.com/a/23745
 void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *b3) {
     v3_t v0;
+    /*printf("point: {%f, %f, %f}\n",
+        p->x, p->y, p->z);
+    printf("triangle: {%f, %f, %f} , {%f, %f, %f} , {%f, %f, %f}\n",
+        triangle->b.xyz.x, triangle->b.xyz.y, triangle->b.xyz.z,
+        triangle->c.xyz.x, triangle->c.xyz.y, triangle->c.xyz.z,
+        triangle->a.xyz.x, triangle->a.xyz.y, triangle->a.xyz.z );*/
     v3_sub(&(triangle->b.xyz), &(triangle->a.xyz), &v0);
+    //printf("v0 = {%f, %f, %f}\n", v0.x, v0.y, v0.z);
     v3_t v1;
     v3_sub(&(triangle->c.xyz), &(triangle->a.xyz), &v1);
     v3_t v2;
@@ -88,10 +95,16 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
     double d11 = v3_dot(&v1, &v1);
     double d20 = v3_dot(&v2, &v0);
     double d21 = v3_dot(&v2, &v1);
+    //printf("d00 d01 d11 %f %f %f\n", d00, d01, d11);
     double denom = (d00 * d11) - (d01 * d01);
     *b1 = ((d11 * d20) - (d01 * d21)) / denom;
+    //printf("%f, %f\n", denom, *b1);
+    //ASSERT((*b1 >= 0) && (*b1 <= 1));
     *b2 = ((d00 * d21) - (d01 * d20)) / denom;
+    //ASSERT((*b2 >= 0) && (*b2 <= 1));
     *b3 = 1. - *b1 - *b2;
+    //ASSERT((*b3 >= 0) && (*b3 <= 1));
+    //ASSERT(*b1 + *b2 + *b3 == 1);
 }
 
 typedef struct {
@@ -252,10 +265,18 @@ int main(void) {
                         if (z < min_z) {
                             min_z = z;
                         }
-                        v3_t p = { .x = x, .y = y, .z = z };
-                        double b1, b2, b3;
-                        barycentric(&p, span->triangle, &b1, &b2, &b3);
-                        texture[off].r = span->triangle->material->texture[15].r; //span->parent->r;
+                        //v3_t p = { .x = x, .y = y, .z = z };
+                        //double b1, b2, b3;
+                        //printf("p = {%i, %i, %f}\n", x, y, z);
+                        //barycentric(&p, span->triangle, &b1, &b2, &b3);
+                        double u = 0; //(b1 * span->triangle->a.uv.u) + (b2 * span->triangle->b.uv.u) + (b3 * span->triangle->c.uv.u);
+                        // TODO assert?
+                        u = MAX(0, MIN(span->triangle->material->w, u));
+                        double v = 0; //(b1 * span->triangle->a.uv.v) + (b2 * span->triangle->b.uv.v) + (b3 * span->triangle->c.uv.v);
+                        v = MAX(0, MIN(span->triangle->material->h, v));
+                        int tex_off = u + (v * span->triangle->material->w);
+                        (void)tex_off;
+                        texture[off].r = span->triangle->material->texture[15].r;
                         texture[off].g = 0; //span->parent->g;
                         texture[off].b = 0; //span->parent->b;
                         render_stats.pixels_drawn++;
