@@ -75,6 +75,25 @@ void load_obj(char *fn, double scale, double yaw, double pitch, double roll) {
     ASSERT(ferror(fp) == 0);
 }
 
+// https://gamedev.stackexchange.com/a/23745
+void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *b3) {
+    v3_t v0;
+    v3_sub(&(triangle->b.xyz), &(triangle->a.xyz), &v0);
+    v3_t v1;
+    v3_sub(&(triangle->c.xyz), &(triangle->a.xyz), &v1);
+    v3_t v2;
+    v3_sub(p, &(triangle->a.xyz), &v2);
+    double d00 = v3_dot(&v0, &v0);
+    double d01 = v3_dot(&v0, &v1);
+    double d11 = v3_dot(&v1, &v1);
+    double d20 = v3_dot(&v2, &v0);
+    double d21 = v3_dot(&v2, &v1);
+    double denom = (d00 * d11) - (d01 * d01);
+    *b1 = ((d11 * d20) - (d01 * d21)) / denom;
+    *b2 = ((d00 * d21) - (d01 * d20)) / denom;
+    *b3 = 1. - *b1 - *b2;
+}
+
 typedef struct {
     GLubyte r, g, b;
 } gl_rgb_t;
@@ -233,10 +252,9 @@ int main(void) {
                         if (z < min_z) {
                             min_z = z;
                         }
-                        //v3_t p = { .x = x, .y = y, .z = z };
-                        //double u, v, w;
-                        //barycentric(&p, span->triangle_a, span->triangle_b, span->triangle_c, &u, &v, &w);
-                        //span->triangle_u
+                        v3_t p = { .x = x, .y = y, .z = z };
+                        double b1, b2, b3;
+                        barycentric(&p, span->triangle, &b1, &b2, &b3);
                         texture[off].r = span->triangle->material->texture[15].r; //span->parent->r;
                         texture[off].g = 0; //span->parent->g;
                         texture[off].b = 0; //span->parent->b;

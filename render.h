@@ -43,12 +43,17 @@ typedef struct {
 } material_t;
 
 typedef struct {
+    v3_t xyz;
     struct {
-        v3_t xyz;
-        struct {
-            double u, v;
-        } uv;
-    } abc[3];
+        double u, v;
+    } uv;
+} triangle_coord_t;
+
+typedef struct {
+    union {
+        triangle_coord_t abc[3];
+        triangle_coord_t a, b, c;
+    };
     material_t *material;
 } triangle_t;
 
