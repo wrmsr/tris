@@ -13,8 +13,11 @@ render_stats_t render_stats = {
 };
 
 render_frame_stats_t render_frame_stats;
+int color_index;
 
 void render_begin_frame(void) {
+    color_index = 0;
+
     if (render_stats.start_time < 0) {
         render_stats.start_time = time_now();
     }
@@ -97,20 +100,28 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
         span.y_hi = MAX(0, MIN(FAKESCREEN_H, other1->y)); // or other2[1], doesn't matter.
     }
     memcpy(&(span.ref), hi_or_lo, sizeof(span.ref));
-    // This is the slope for the left side of the triangle
+    // Of the other two vertices, which is more distant in x from the reference
+    // point?
+    /*screen_vertex_t *x_diff_vert;
+    if (abs(span.ref.x - other1->x) > abs(span.ref.x - other2->x)) {
+        x_diff_vert = other1;
+    } else {
+        x_diff_vert = other2;
+    }*/
 
     // The dx/dy slope for drawing the left side of the triangle:
     float dsx_dsy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
     // The dx/dy slope for drawing the right side of the triangle:
     float dsx_dsy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
-    // The dz/dy slope for the depth per screen y:
-    float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
-    // The dz/dx slope for the depth per screen x:
+    // The slopes for the depth per screen x and y:
     float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    // The dx/dx slope for screen to object space.
-    //float dox_dsx = ;
-    // The dy/dy slope for screen to object space.
-    //float object_dx_dy_hi = ;
+    float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
+    // Slopes for conversion of screenspace x and y to objectspace x and y.
+    /*float dox_dsx = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.x - x_diff_vert->x);
+    float dox_dsy = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.y - x_diff_vert->y);
+    float doy_dsx = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.x - x_diff_vert->x);
+    float doy_dsy = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.y - x_diff_vert->y);
+    */
     span.triangle = triangle;
 
     // Draw the spans to the screen, respecting the z-buffer.
@@ -137,9 +148,10 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         if (z < min_z) {
                             min_z = z;
                         }
-                        //v3_t p = { .x = x, .y = y, .z = z };
+                        //double object_x = span.ref.object.x + (dox_dsx * (x - span.ref.x)) + (dox_dsy * (y - span.ref.y));
+                        //double object_y = span.ref.object.y + (doy_dsx * (x - span.ref.x)) + (doy_dsy * (y - span.ref.y));
+                        //v3_t p = { .x = object_x, .y = object_y, .z = z };
                         //double b1, b2, b3;
-                        //printf("p = {%i, %i, %f}\n", x, y, z);
                         //barycentric(&p, span.triangle, &b1, &b2, &b3);
                         //double u = (b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
                         // TODO assert?
@@ -151,6 +163,14 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         texture[off].r = 255; // span.triangle->material->texture[15].r;
                         texture[off].g = 0; //span.parent->g;
                         texture[off].b = 0; //span.parent->b;
+                        
+
+                // For debugging purposes, give every triangle a different
+                // color.
+                texture[off].r = (color_index * 13) % 0xff;
+                texture[off].g = (color_index * 101) % 0xff;
+                texture[off].b = (color_index * 211) % 0xff;
+
                         render_stats.pixels_drawn++;
                         render_frame_stats.pixels_drawn++;
                     } else {
@@ -162,6 +182,8 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
 }
 
 void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v3_t *camera_left, triangle_t *triangle) {
+    color_index++;
+
     // The screen exists on a plane "in front of" the camera.
     v3_t screen_center;
     v3_add(camera_pos, camera_fwd, &screen_center);
@@ -294,12 +316,7 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
                 double z = v3_dot(&camera_pos_to_v, camera_fwd);
                 ASSERT(z >= 0);
                 screen_triangle.v[k].z = z;
-
-                // For debugging purposes, give every triangle a different
-                // color.
-                screen_triangle.r = 255; //(i * 13) % 0xff;
-                screen_triangle.g = 0; //(i * 101) % 0xff;
-                screen_triangle.b = 0; //(i * 211) % 0xff;
+                memcpy(&screen_triangle.v[k].object, v, sizeof(v3_t));
             } else {
                 // If the ray doesn't project onto the screen, it's because the
                 // ray is parallel to the screen, so it will be perpendicular

@@ -65,6 +65,7 @@ typedef struct {
 typedef struct {
     int16_t x, y;
     double z;
+    v3_t object;
 } screen_vertex_t;
 
 typedef struct {
@@ -86,25 +87,9 @@ typedef struct span_t {
     // screen space: needed for quickly figuring out which pixels on screen to draw
     int16_t y_lo, y_hi;
     screen_vertex_t ref; // this is either the lowest (down pointing span) or highest (up pointing span) point of the span.
-    double dx_dy_lo;
-    double dx_dy_hi;
-
-    // object space: 
-    double dz_dy_lo;
-    double dz_dx_lo;
 
     // needed for materials, original triangle coords for texture mapping, etc
     triangle_t *triangle;
-
-    // We'll insert spans in a linked list (the "y range table"). That table
-    // indicates on which y-value spans begin and end, to speed up the raster
-    // loop.
-    struct span_t *next_span_y_entry;
-    struct span_t *next_span_y_exit;
-
-    // At raster time, we'll keep a list of active spans.
-    struct span_t *next_active_span;
-    struct span_t *prev_active_span;
 } span_t;
 
 void render_begin_frame(void);

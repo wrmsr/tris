@@ -110,7 +110,7 @@ int main(void) {
     v3_t camera_up;
     memcpy(&camera_up, &camera_up_reset, sizeof(v3_t));
     int do_quit = 0;
-    while (!do_quit && render_stats.frames_drawn < 200) {
+    while (!do_quit && render_stats.frames_drawn < 400) {
         render_frame_stats.start_time = time_now();
         render_frame_stats.pixels_rejected_by_z = 0;
         render_frame_stats.pixels_drawn = 0;
@@ -134,7 +134,7 @@ int main(void) {
         double scale = 3 + (.5 * cos(2 * now));
         camera_pos.x = (2. * cos(theta)) * scale;
         camera_pos.y = (2. * sin(theta)) * scale;
-        camera_pos.z = 0;
+        camera_pos.z = (2. * sin(theta)) * scale;
 
         // Point the camera at the origin.
         camera_fwd.x = 0 - camera_pos.x;
@@ -159,16 +159,46 @@ int main(void) {
         }
 
         render_begin_frame();
-        for (int i = 0; i < n_tris; i++) {
-            // Build the triangle to be rendered.
-            triangle_t triangle;
-            for (int j = 0; j < 3; j++) {
-                memcpy(&(triangle.abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
-                triangle.abc[j].uv.u = 0;
-                triangle.abc[j].uv.v = 0;
-                triangle.material = &material;
+        if (render_stats.frames_drawn < 200) {
+            triangle_coord_t coords[] = {
+                { .xyz = { .x = -2, .y = -2, .z = -2 } },
+                { .xyz = { .x =  2, .y = -2, .z = -2 } },
+                { .xyz = { .x =  2, .y =  2, .z = -2 } },
+                { .xyz = { .x = -2, .y =  2, .z = -2 } },
+                { .xyz = { .x = -2, .y = -2, .z =  2 } },
+                { .xyz = { .x =  2, .y = -2, .z =  2 } },
+                { .xyz = { .x =  2, .y =  2, .z =  2 } },
+                { .xyz = { .x = -2, .y =  2, .z =  2 } },
+            };
+            triangle_t triangles[] = {
+                { .a = coords[2], .b = coords[1], .c = coords[0] },
+                { .a = coords[0], .b = coords[3], .c = coords[2] },
+                { .a = coords[1], .b = coords[2], .c = coords[6] },
+                { .a = coords[6], .b = coords[5], .c = coords[1] },
+                { .a = coords[2], .b = coords[3], .c = coords[7] },
+                { .a = coords[7], .b = coords[6], .c = coords[2] },
+                { .a = coords[3], .b = coords[0], .c = coords[4] },
+                { .a = coords[4], .b = coords[7], .c = coords[3] },
+                { .a = coords[0], .b = coords[1], .c = coords[5] },
+                { .a = coords[5], .b = coords[4], .c = coords[0] },
+                { .a = coords[4], .b = coords[5], .c = coords[6] },
+                { .a = coords[6], .b = coords[7], .c = coords[4] },
+            };
+            for (int i = 0; i < sizeof(triangles) / sizeof(triangles[0]); i++) {
+                render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangles[i]);
             }
-            render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
+        } else {
+            for (int i = 0; i < n_tris; i++) {
+                // Build the triangle to be rendered.
+                triangle_t triangle;
+                for (int j = 0; j < 3; j++) {
+                    memcpy(&(triangle.abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
+                    triangle.abc[j].uv.u = 0;
+                    triangle.abc[j].uv.v = 0;
+                    triangle.material = &material;
+                }
+                render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
+            }
         }
 
         glEnable(GL_TEXTURE_2D);
