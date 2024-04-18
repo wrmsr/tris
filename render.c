@@ -44,7 +44,6 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
         triangle->c.xyz.x, triangle->c.xyz.y, triangle->c.xyz.z,
         triangle->a.xyz.x, triangle->a.xyz.y, triangle->a.xyz.z );
     v3_sub(&(triangle->b.xyz), &(triangle->a.xyz), &v0);
-    printf("v0 = {%f, %f, %f}\n", v0.x, v0.y, v0.z);
     v3_t v1;
     v3_sub(&(triangle->c.xyz), &(triangle->a.xyz), &v1);
     v3_t v2;
@@ -54,14 +53,12 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
     double d11 = v3_dot(&v1, &v1);
     double d20 = v3_dot(&v2, &v0);
     double d21 = v3_dot(&v2, &v1);
-    printf("d00 d01 d11 %f %f %f\n", d00, d01, d11);
     double denom = (d00 * d11) - (d01 * d01);
     *b1 = ((d11 * d20) - (d01 * d21)) / denom;
-    printf("%f, %f\n", denom, *b1);
-    ASSERT((*b1 >= 0) && (*b1 <= 1));
     *b2 = ((d00 * d21) - (d01 * d20)) / denom;
-    ASSERT((*b2 >= 0) && (*b2 <= 1));
     *b3 = 1. - *b1 - *b2;
+    ASSERT((*b1 >= 0) && (*b1 <= 1));
+    ASSERT((*b2 >= 0) && (*b2 <= 1));
     ASSERT((*b3 >= 0) && (*b3 <= 1));
     ASSERT(*b1 + *b2 + *b3 == 1);
 }
@@ -102,26 +99,26 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     memcpy(&(span.ref), hi_or_lo, sizeof(span.ref));
     // Of the other two vertices, which is more distant in x from the reference
     // point?
-    /*screen_vertex_t *x_diff_vert;
+    screen_vertex_t *x_diff_vert;
     if (abs(span.ref.x - other1->x) > abs(span.ref.x - other2->x)) {
         x_diff_vert = other1;
     } else {
         x_diff_vert = other2;
-    }*/
+    }
 
     // The dx/dy slope for drawing the left side of the triangle:
     float dsx_dsy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
     // The dx/dy slope for drawing the right side of the triangle:
     float dsx_dsy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
-    // The slopes for the depth per screen x and y:
-    float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
-    // Slopes for conversion of screenspace x and y to objectspace x and y.
-    /*float dox_dsx = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.x - x_diff_vert->x);
+    // Slopes for conversion of screenspace x and y to objectspace x, y, and z.
+    float dox_dsx = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.x - x_diff_vert->x);
     float dox_dsy = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.y - x_diff_vert->y);
     float doy_dsx = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.x - x_diff_vert->x);
     float doy_dsy = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.y - x_diff_vert->y);
-    */
+    float doz_dsx = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.x - x_diff_vert->x);
+    float doz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
+    //float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
+    //float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
     span.triangle = triangle;
 
     // Draw the spans to the screen, respecting the z-buffer.
@@ -148,11 +145,23 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         if (z < min_z) {
                             min_z = z;
                         }
-                        //double object_x = span.ref.object.x + (dox_dsx * (x - span.ref.x)) + (dox_dsy * (y - span.ref.y));
-                        //double object_y = span.ref.object.y + (doy_dsx * (x - span.ref.x)) + (doy_dsy * (y - span.ref.y));
-                        //v3_t p = { .x = object_x, .y = object_y, .z = z };
-                        //double b1, b2, b3;
-                        //barycentric(&p, span.triangle, &b1, &b2, &b3);
+                        /*printf("dox_dsx = %f\n", dox_dsx);
+                        printf("dox_dsy = %f\n", dox_dsy);
+                        printf("doy_dsx = %f\n", doy_dsx);
+                        printf("doy_dsy = %f\n", doy_dsy);
+                        printf("doz_dsx = %f\n", doz_dsx);
+                        printf("doz_dsy = %f\n", doz_dsy);
+                        */
+                        printf("triangle in screen: (%i, %i) (%i, %i) (%i, %i)\n",
+                            x_lo_vert->x, x_lo_vert->y, hi_or_lo->x, hi_or_lo->y, x_hi_vert->x, x_hi_vert->y);
+                        printf("current screen x, y = %i, %i\n", x, y);
+                        printf("x_fill lo = %i, hi = %i\n", x_fill_lo, x_fill_hi);
+                        double object_x = span.ref.object.x + (dox_dsx * (x - x_fill_lo)) + (dox_dsy * (y - span.ref.y));
+                        double object_y = span.ref.object.y + (doy_dsx * (x - x_fill_lo)) + (doy_dsy * (y - span.ref.y));
+                        double object_z = span.ref.object.z + (doz_dsx * (x - x_fill_lo)) + (doz_dsy * (y - span.ref.y));
+                        v3_t p = { .x = object_x, .y = object_y, .z = object_z };
+                        double b1, b2, b3;
+                        barycentric(&p, span.triangle, &b1, &b2, &b3);
                         //double u = (b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
                         // TODO assert?
                         //u = MAX(0, MIN(span.triangle->material->w, u));
@@ -167,9 +176,9 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
 
                 // For debugging purposes, give every triangle a different
                 // color.
-                texture[off].r = (color_index * 13) % 0xff;
+                /*texture[off].r = (color_index * 13) % 0xff;
                 texture[off].g = (color_index * 101) % 0xff;
-                texture[off].b = (color_index * 211) % 0xff;
+                texture[off].b = (color_index * 211) % 0xff;*/
 
                         render_stats.pixels_drawn++;
                         render_frame_stats.pixels_drawn++;
