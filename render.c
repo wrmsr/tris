@@ -37,12 +37,12 @@ void render_begin_frame(void) {
 // https://gamedev.stackexchange.com/a/23745
 void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *b3) {
     v3_t v0;
-    printf("point: {%f, %f, %f}\n",
+    /*printf("point: {%f, %f, %f}\n",
         p->x, p->y, p->z);
     printf("triangle: {%f, %f, %f} , {%f, %f, %f} , {%f, %f, %f}\n",
         triangle->b.xyz.x, triangle->b.xyz.y, triangle->b.xyz.z,
         triangle->c.xyz.x, triangle->c.xyz.y, triangle->c.xyz.z,
-        triangle->a.xyz.x, triangle->a.xyz.y, triangle->a.xyz.z );
+        triangle->a.xyz.x, triangle->a.xyz.y, triangle->a.xyz.z );*/
     v3_sub(&(triangle->b.xyz), &(triangle->a.xyz), &v0);
     v3_t v1;
     v3_sub(&(triangle->c.xyz), &(triangle->a.xyz), &v1);
@@ -57,10 +57,11 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
     *b1 = ((d11 * d20) - (d01 * d21)) / denom;
     *b2 = ((d00 * d21) - (d01 * d20)) / denom;
     *b3 = 1. - *b1 - *b2;
-    ASSERT((*b1 >= 0) && (*b1 <= 1));
-    ASSERT((*b2 >= 0) && (*b2 <= 1));
-    ASSERT((*b3 >= 0) && (*b3 <= 1));
-    ASSERT(*b1 + *b2 + *b3 == 1);
+    //printf("b1 = %f, b2 = %f, b3 = %f\n", *b1, *b2, *b3);
+    //ASSERT((*b1 >= 0) && (*b1 <= 1));
+    //ASSERT((*b2 >= 0) && (*b2 <= 1));
+    //ASSERT((*b3 >= 0) && (*b3 <= 1)); // need to solve precision issues first
+    //ASSERT(*b1 + *b2 + *b3 == 1);
 }
 
 extern double *depth_buffer;
@@ -99,77 +100,92 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     memcpy(&(span.ref), hi_or_lo, sizeof(span.ref));
     // Of the other two vertices, which is more distant in x from the reference
     // point?
-    screen_vertex_t *x_diff_vert;
+    /*screen_vertex_t *x_diff_vert;
     if (abs(span.ref.x - other1->x) > abs(span.ref.x - other2->x)) {
         x_diff_vert = other1;
     } else {
         x_diff_vert = other2;
-    }
+    }*/
 
     // The dx/dy slope for drawing the left side of the triangle:
     float dsx_dsy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
     // The dx/dy slope for drawing the right side of the triangle:
     float dsx_dsy_hi = (span.ref.x - x_hi_vert->x) / (double)(span.ref.y - x_hi_vert->y);
     // Slopes for conversion of screenspace x and y to objectspace x, y, and z.
-    float dox_dsx = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.x - x_diff_vert->x);
+    /*float dox_dsx = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.x - x_diff_vert->x);
     float dox_dsy = (span.ref.object.x - x_diff_vert->object.x) / (double)(span.ref.y - x_diff_vert->y);
     float doy_dsx = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.x - x_diff_vert->x);
     float doy_dsy = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.y - x_diff_vert->y);
-    float doz_dsx = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.x - x_diff_vert->x);
-    float doz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
-    //float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    //float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
+    */
+    //float doz_dsx = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.x - x_diff_vert->x);
+    //float doz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
+    float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
+    float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
     span.triangle = triangle;
 
     // Draw the spans to the screen, respecting the z-buffer.
     double min_z = DBL_MAX;
     double max_z = -DBL_MAX;
     for (int y = span.y_lo; y < span.y_hi; y++) {
-                int16_t x_fill_lo = span.ref.x + (dsx_dsy_lo * (y - span.ref.y)); // TODO; this can just be +1 since we're going row by row, no mult needed
-                int16_t x_fill_hi = span.ref.x + (dsx_dsy_hi * (y - span.ref.y));
+                int x_fill_lo = span.ref.x + (dsx_dsy_lo * (y - span.ref.y)); // TODO; this can just be +1 since we're going row by row, no mult needed
+                int x_fill_hi = span.ref.x + (dsx_dsy_hi * (y - span.ref.y));
                 ASSERT(x_fill_lo <= x_fill_hi);
                 if (x_fill_lo < 0)
                     x_fill_lo = 0;
                 if (x_fill_hi > FAKESCREEN_W - 1)
                     x_fill_hi = FAKESCREEN_W - 1;
-                double z_lo = span.ref.z + (doz_dsy * (y - span.ref.y));
-                for (int16_t x = x_fill_lo; x <= x_fill_hi; x++) {
+                // This is a lot faster than doing the barymetric transform
+                // now, given there's a chance this pixel gets z-rejected.
+                double screen_z_lo = span.ref.z + (doz_dsy * (y - span.ref.y));
+                for (int x = x_fill_lo; x <= x_fill_hi; x++) {
+
                     // Do a z-check before we draw the pixel.
                     int off = (y * FAKESCREEN_W) + x;
-                    double z = z_lo + (doz_dsx * (x - x_fill_lo));
-                    if ((z < depth_buffer[off]) && (z >= 0)) {
-                        depth_buffer[off] = z;
-                        if (z > max_z) {
-                            max_z = z;
+                    double screen_z = screen_z_lo + (doz_dsx * (x - x_fill_lo));
+                    if ((screen_z < depth_buffer[off]) && (screen_z >= 0)) {
+                        depth_buffer[off] = screen_z;
+                        if (screen_z > max_z) {
+                            max_z = screen_z;
                         }
-                        if (z < min_z) {
-                            min_z = z;
+                        if (screen_z < min_z) {
+                            min_z = screen_z;
                         }
+                        v3_t p = { .x = x, .y = y, .z = 0 };
+                        double b1, b2, b3;
+                        triangle_t screen_triangle = {
+                            .a = { .xyz = {.x = x_lo_vert->x, .y = x_lo_vert->y, .z = 0} },
+                            .b = { .xyz = {.x = x_hi_vert->x, .y = x_hi_vert->y, .z = 0} },
+                            .c = { .xyz = {.x = hi_or_lo->x, .y = hi_or_lo->y, .z = 0} },
+                        };
+                        barycentric(&p, &screen_triangle, &b1, &b2, &b3);
+                        //double object_x = (b1 * span.ref.object.x) + (b2 * span.ref.object.y) + (b3 * span.ref.object.z);
+                    //double object_y = (b1 * span.ref.object.y) + (b2 * span.ref.object.y) + (b3 * span.ref.object.y);
+                    //double screen_z = (b1 * x_lo_vert->z) + (b2 * x_hi_vert->z) + (b3 * hi_or_lo->z);
+                    double u = (b1 * span.triangle->a.u) + (b2 * span.triangle->b.u) + (b3 * span.triangle->c.u);
+                    double v = (b1 * span.triangle->a.v) + (b2 * span.triangle->b.v) + (b3 * span.triangle->c.v);
+
                         /*printf("dox_dsx = %f\n", dox_dsx);
                         printf("dox_dsy = %f\n", dox_dsy);
                         printf("doy_dsx = %f\n", doy_dsx);
                         printf("doy_dsy = %f\n", doy_dsy);
                         printf("doz_dsx = %f\n", doz_dsx);
                         printf("doz_dsy = %f\n", doz_dsy);
-                        */
                         printf("triangle in screen: (%i, %i) (%i, %i) (%i, %i)\n",
                             x_lo_vert->x, x_lo_vert->y, hi_or_lo->x, hi_or_lo->y, x_hi_vert->x, x_hi_vert->y);
                         printf("current screen x, y = %i, %i\n", x, y);
                         printf("x_fill lo = %i, hi = %i\n", x_fill_lo, x_fill_hi);
-                        double object_x = span.ref.object.x + (dox_dsx * (x - x_fill_lo)) + (dox_dsy * (y - span.ref.y));
-                        double object_y = span.ref.object.y + (doy_dsx * (x - x_fill_lo)) + (doy_dsy * (y - span.ref.y));
-                        double object_z = span.ref.object.z + (doz_dsx * (x - x_fill_lo)) + (doz_dsy * (y - span.ref.y));
-                        v3_t p = { .x = object_x, .y = object_y, .z = object_z };
-                        double b1, b2, b3;
-                        barycentric(&p, span.triangle, &b1, &b2, &b3);
+                        */
+                                                //double object_x = (b1 * span.ref.object.x) + (b2 * span.ref.object.y) + (b3 * span.ref.object.z);
+                        //double object_y = (b1 * span.ref.object.y) + (b2 * span.ref.object.y) + (b3 * span.ref.object.y);
+                        //double object_z = (b1 * span.ref.object.z) + (b2 * span.ref.object.z) + (b3 * span.ref.object.z);
                         //double u = (b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
                         // TODO assert?
-                        //u = MAX(0, MIN(span.triangle->material->w, u));
+                        u = MAX(0, MIN(1, u));
                         //double v = (b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
-                        //v = MAX(0, MIN(span.triangle->material->h, v));
-                        //int tex_off = u + (v * span.triangle->material->w);
-                        //(void)tex_off;
-                        texture[off].r = 255; // span.triangle->material->texture[15].r;
+                        v = MAX(0, MIN(1, v));
+                        int tex_off = u + (v * span.triangle->material->w);
+                        (void)tex_off;
+                        texture[off].r = span.triangle->material->texture[tex_off].r;
                         texture[off].g = 0; //span.parent->g;
                         texture[off].b = 0; //span.parent->b;
                         

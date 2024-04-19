@@ -45,9 +45,10 @@ typedef struct {
 
 typedef struct {
     v3_t xyz;
-    struct {
+    union {
         double u, v;
-    } uv;
+        double uv[2];
+    };
 } triangle_coord_t;
 
 typedef struct {

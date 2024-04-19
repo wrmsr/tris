@@ -159,30 +159,30 @@ int main(void) {
         }
 
         render_begin_frame();
-        if (render_stats.frames_drawn < 200) {
+        if (1) { //render_stats.frames_drawn < 200) {
             triangle_coord_t coords[] = {
-                { .xyz = { .x = -2, .y = -2, .z = -2 } },
-                { .xyz = { .x =  2, .y = -2, .z = -2 } },
-                { .xyz = { .x =  2, .y =  2, .z = -2 } },
-                { .xyz = { .x = -2, .y =  2, .z = -2 } },
-                { .xyz = { .x = -2, .y = -2, .z =  2 } },
-                { .xyz = { .x =  2, .y = -2, .z =  2 } },
-                { .xyz = { .x =  2, .y =  2, .z =  2 } },
-                { .xyz = { .x = -2, .y =  2, .z =  2 } },
+                { .xyz = { .x = -2, .y = -2, .z = -2 }, .uv = { 0, 0 } },
+                { .xyz = { .x =  2, .y = -2, .z = -2 }, .uv = { 1, 1 } },
+                { .xyz = { .x =  2, .y =  2, .z = -2 }, .uv = { 0, 1 } },
+                { .xyz = { .x = -2, .y =  2, .z = -2 }, .uv = { 0, 0 } },
+                { .xyz = { .x = -2, .y = -2, .z =  2 }, .uv = { 0, 0 } },
+                { .xyz = { .x =  2, .y = -2, .z =  2 }, .uv = { 1, 1 } },
+                { .xyz = { .x =  2, .y =  2, .z =  2 }, .uv = { 0, 0 } },
+                { .xyz = { .x = -2, .y =  2, .z =  2 }, .uv = { 1, 0 } },
             };
             triangle_t triangles[] = {
-                { .a = coords[2], .b = coords[1], .c = coords[0] },
-                { .a = coords[0], .b = coords[3], .c = coords[2] },
-                { .a = coords[1], .b = coords[2], .c = coords[6] },
-                { .a = coords[6], .b = coords[5], .c = coords[1] },
-                { .a = coords[2], .b = coords[3], .c = coords[7] },
-                { .a = coords[7], .b = coords[6], .c = coords[2] },
-                { .a = coords[3], .b = coords[0], .c = coords[4] },
-                { .a = coords[4], .b = coords[7], .c = coords[3] },
-                { .a = coords[0], .b = coords[1], .c = coords[5] },
-                { .a = coords[5], .b = coords[4], .c = coords[0] },
-                { .a = coords[4], .b = coords[5], .c = coords[6] },
-                { .a = coords[6], .b = coords[7], .c = coords[4] },
+                { .a = coords[2], .b = coords[1], .c = coords[0], .material = &material },
+                { .a = coords[0], .b = coords[3], .c = coords[2], .material = &material },
+                { .a = coords[1], .b = coords[2], .c = coords[6], .material = &material },
+                { .a = coords[6], .b = coords[5], .c = coords[1], .material = &material },
+                { .a = coords[2], .b = coords[3], .c = coords[7], .material = &material },
+                { .a = coords[7], .b = coords[6], .c = coords[2], .material = &material },
+                { .a = coords[3], .b = coords[0], .c = coords[4], .material = &material },
+                { .a = coords[4], .b = coords[7], .c = coords[3], .material = &material },
+                { .a = coords[0], .b = coords[1], .c = coords[5], .material = &material },
+                { .a = coords[5], .b = coords[4], .c = coords[0], .material = &material },
+                { .a = coords[4], .b = coords[5], .c = coords[6], .material = &material },
+                { .a = coords[6], .b = coords[7], .c = coords[4], .material = &material },
             };
             for (int i = 0; i < sizeof(triangles) / sizeof(triangles[0]); i++) {
                 render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangles[i]);
@@ -193,8 +193,8 @@ int main(void) {
                 triangle_t triangle;
                 for (int j = 0; j < 3; j++) {
                     memcpy(&(triangle.abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
-                    triangle.abc[j].uv.u = 0;
-                    triangle.abc[j].uv.v = 0;
+                    triangle.abc[j].u = 0;
+                    triangle.abc[j].v = 0;
                     triangle.material = &material;
                 }
                 render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
