@@ -29,6 +29,7 @@ void render_begin_frame(void) {
     render_frame_stats.num_pointup_spans = 0;
     render_frame_stats.num_pointdown_spans = 0;
     render_frame_stats.num_degenerate_spans = 0;
+    render_frame_stats.num_triangles = 0;
     render_frame_stats.num_onespan_triangles = 0;
     render_frame_stats.num_twospan_triangles = 0;
     render_frame_stats.num_degenerate_triangles = 0;
@@ -161,7 +162,9 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         //double object_x = (b1 * span.ref.object.x) + (b2 * span.ref.object.y) + (b3 * span.ref.object.z);
                     //double object_y = (b1 * span.ref.object.y) + (b2 * span.ref.object.y) + (b3 * span.ref.object.y);
                     //double screen_z = (b1 * x_lo_vert->z) + (b2 * x_hi_vert->z) + (b3 * hi_or_lo->z);
+                    //printf("%f, %f, %f\n", span.triangle->a.u, span.triangle->b.u, b3 * span.triangle->c.u);
                     double u = (b1 * span.triangle->a.u) + (b2 * span.triangle->b.u) + (b3 * span.triangle->c.u);
+                    //printf("%f, %f, %f\n", span.triangle->a.v, span.triangle->b.v, b3 * span.triangle->c.v);
                     double v = (b1 * span.triangle->a.v) + (b2 * span.triangle->b.v) + (b3 * span.triangle->c.v);
 
                         /*printf("dox_dsx = %f\n", dox_dsx);
@@ -181,13 +184,16 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         //double u = (b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
                         // TODO assert?
                         u = MAX(0, MIN(1, u));
+                        int x_tex = u * span.triangle->material->w;
                         //double v = (b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
                         v = MAX(0, MIN(1, v));
-                        int tex_off = u + (v * span.triangle->material->w);
+                        //printf("u, v = %f, %f\n", u, v);
+                        int y_tex = v * span.triangle->material->h;
+                        int tex_off = x_tex + (y_tex * span.triangle->material->w);
                         (void)tex_off;
                         texture[off].r = span.triangle->material->texture[tex_off].r;
-                        texture[off].g = 0; //span.parent->g;
-                        texture[off].b = 0; //span.parent->b;
+                        texture[off].g = span.triangle->material->texture[tex_off].g;
+                        texture[off].b = span.triangle->material->texture[tex_off].b;
                         
 
                 // For debugging purposes, give every triangle a different
@@ -354,6 +360,8 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
 }
 
 void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
+    render_frame_stats.num_triangles++;
+
     // Pick a vertex that is above all other vertices.
     screen_vertex_t *a = &(screen_triangle->v[0]);
     screen_vertex_t *b = &(screen_triangle->v[1]);

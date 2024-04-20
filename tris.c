@@ -82,9 +82,9 @@ int main(void) {
     for (int y = 0; y < 64; y++) {
         for (int x = 0; x < 64; x++) {
             rgba_t *rgba = &(material.texture[(y * 64) + x]);
-            rgba->r = (x % 16) * 16;
-            rgba->g = (y % 16) * 16;
-            rgba->b = 0;
+            rgba->r = ((x / 16) % 2) * 255;
+            rgba->g = 0;
+            rgba->b = ((y / 16) % 2) * 255;
             rgba->a = 0;
         }
     }
@@ -99,7 +99,7 @@ int main(void) {
     depth_buffer = malloc(sizeof(double) * FAKESCREEN_W * FAKESCREEN_H);
     texture = malloc(sizeof(gl_rgb_t) * FAKESCREEN_W * FAKESCREEN_H);
 
-    v3_t camera_pos = { .x = -10, .y = 0, .z = 0 };
+    v3_t camera_pos = { .x = -10, .y = 0, .z = 0 }; // TODO this initialization doesnt matter
     v3_t camera_fwd_reset = { .x = 1, .y = 0, .z = 0 };
     v3_t camera_fwd;
     memcpy(&camera_fwd, &camera_fwd_reset, sizeof(v3_t));
@@ -110,7 +110,7 @@ int main(void) {
     v3_t camera_up;
     memcpy(&camera_up, &camera_up_reset, sizeof(v3_t));
     int do_quit = 0;
-    while (!do_quit && render_stats.frames_drawn < 400) {
+    while (!do_quit) { // && render_stats.frames_drawn < 400) {
         render_frame_stats.start_time = time_now();
         render_frame_stats.pixels_rejected_by_z = 0;
         render_frame_stats.pixels_drawn = 0;
@@ -129,12 +129,13 @@ int main(void) {
         }
 
         // Rotate the camera around the origin.
-        double now = render_stats.frames_drawn / 10.;
+        double now = time_now() * 2; //render_stats.frames_drawn / 10.;
         double theta = 0.25 * now;
-        double scale = 3 + (.5 * cos(2 * now));
-        camera_pos.x = (2. * cos(theta)) * scale;
-        camera_pos.y = (2. * sin(theta)) * scale;
-        camera_pos.z = (2. * sin(theta)) * scale;
+        double scale = 4; //3 + (.5 * cos(2 * now));
+        (void)theta; (void)scale;
+        camera_pos.x = 2. * cos(theta) * scale;
+        camera_pos.y = 0; //2. * sin(theta) * scale;
+        camera_pos.z = 2. * sin(theta) * scale;
 
         // Point the camera at the origin.
         camera_fwd.x = 0 - camera_pos.x;
@@ -145,8 +146,8 @@ int main(void) {
         camera_fwd.y = camera_fwd.y / l;
         camera_fwd.z = camera_fwd.z / l;
         camera_up.x = 0;
-        camera_up.y = 0;
-        camera_up.z = 1;
+        camera_up.y = 1;
+        camera_up.z = 0;
         v3_cross(&camera_fwd, &camera_up, &camera_left);
 
         // TODO clear the screen: shouldn't have to do this out of band
@@ -160,19 +161,29 @@ int main(void) {
 
         render_begin_frame();
         if (1) { //render_stats.frames_drawn < 200) {
-            triangle_coord_t coords[] = {
-                { .xyz = { .x = -2, .y = -2, .z = -2 }, .uv = { 0, 0 } },
-                { .xyz = { .x =  2, .y = -2, .z = -2 }, .uv = { 1, 1 } },
-                { .xyz = { .x =  2, .y =  2, .z = -2 }, .uv = { 0, 1 } },
-                { .xyz = { .x = -2, .y =  2, .z = -2 }, .uv = { 0, 0 } },
-                { .xyz = { .x = -2, .y = -2, .z =  2 }, .uv = { 0, 0 } },
-                { .xyz = { .x =  2, .y = -2, .z =  2 }, .uv = { 1, 1 } },
-                { .xyz = { .x =  2, .y =  2, .z =  2 }, .uv = { 0, 0 } },
-                { .xyz = { .x = -2, .y =  2, .z =  2 }, .uv = { 1, 0 } },
+            v3_t coords[] = {
+                { .x = -2, .y = -2, .z = -2 },
+                { .x =  2, .y = -2, .z = -2 },
+                { .x =  2, .y =  2, .z = -2 },
+                { .x = -2, .y =  2, .z = -2 },
+                { .x = -2, .y = -2, .z =  2 },
+                { .x =  2, .y = -2, .z =  2 },
+                { .x =  2, .y =  2, .z =  2 },
+                { .x = -2, .y =  2, .z =  2 },
             };
             triangle_t triangles[] = {
-                { .a = coords[2], .b = coords[1], .c = coords[0], .material = &material },
-                { .a = coords[0], .b = coords[3], .c = coords[2], .material = &material },
+                {
+                    .a = { .xyz = coords[2], .uv = { 0, 0 } },
+                    .b = { .xyz = coords[1], .uv = { 1, 0 } },
+                    .c = { .xyz = coords[0], .uv = { 0, 1 } },
+                    .material = &material
+                }/*, {
+                    .a = { .xyz = coords[0], .uv = { 0, 0 } },
+                    .b = { .xyz = coords[3], .uv = { 0, 1 } },
+                    .c = { .xyz = coords[2], .uv = { 1, 0 } },
+                    .material = &material
+                },*/
+                /*
                 { .a = coords[1], .b = coords[2], .c = coords[6], .material = &material },
                 { .a = coords[6], .b = coords[5], .c = coords[1], .material = &material },
                 { .a = coords[2], .b = coords[3], .c = coords[7], .material = &material },
@@ -182,7 +193,7 @@ int main(void) {
                 { .a = coords[0], .b = coords[1], .c = coords[5], .material = &material },
                 { .a = coords[5], .b = coords[4], .c = coords[0], .material = &material },
                 { .a = coords[4], .b = coords[5], .c = coords[6], .material = &material },
-                { .a = coords[6], .b = coords[7], .c = coords[4], .material = &material },
+                { .a = coords[6], .b = coords[7], .c = coords[4], .material = &material },*/
             };
             for (int i = 0; i < sizeof(triangles) / sizeof(triangles[0]); i++) {
                 render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangles[i]);
@@ -198,6 +209,16 @@ int main(void) {
                     triangle.material = &material;
                 }
                 render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
+            }
+        }
+
+        for (int y = 0; y < 64; y++) {
+            for (int x = 0; x < 64; x++) {
+                gl_rgb_t *pixel = &texture[(y * FAKESCREEN_W) + x];
+                rgba_t *texel = &(material.texture[(y * 64) + x]);
+                pixel->r = texel->r;
+                pixel->g = texel->g;
+                pixel->b = texel->b;
             }
         }
 
