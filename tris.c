@@ -129,12 +129,11 @@ int main(void) {
         }
 
         // Rotate the camera around the origin.
-        double now = time_now() * 2; //render_stats.frames_drawn / 10.;
+        double now = render_stats.frames_drawn / 10.;
         double theta = 0.25 * now;
-        double scale = 4; //3 + (.5 * cos(2 * now));
-        (void)theta; (void)scale;
+        double scale = 3 + (.5 * cos(2 * now));
         camera_pos.x = 2. * cos(theta) * scale;
-        camera_pos.y = 0; //2. * sin(theta) * scale;
+        camera_pos.y = 2. * sin(theta) * scale;
         camera_pos.z = 2. * sin(theta) * scale;
 
         // Point the camera at the origin.
@@ -160,7 +159,7 @@ int main(void) {
         }
 
         render_begin_frame();
-        if (1) { //render_stats.frames_drawn < 200) {
+        if (render_stats.frames_drawn < 200) {
             v3_t coords[] = {
                 { .x = -2, .y = -2, .z = -2 },
                 { .x =  2, .y = -2, .z = -2 },
@@ -206,7 +205,7 @@ int main(void) {
                     memcpy(&(triangle.abc[j].xyz), &verts[tris[i][j]], sizeof(v3_t));
                     triangle.abc[j].u = 0;
                     triangle.abc[j].v = 0;
-                    triangle.material = &material;
+                    triangle.material = NULL;
                 }
                 render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
             }

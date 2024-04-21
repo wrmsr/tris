@@ -101,12 +101,12 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     memcpy(&(span.ref), hi_or_lo, sizeof(span.ref));
     // Of the other two vertices, which is more distant in x from the reference
     // point?
-    /*screen_vertex_t *x_diff_vert;
+    screen_vertex_t *x_diff_vert;
     if (abs(span.ref.x - other1->x) > abs(span.ref.x - other2->x)) {
         x_diff_vert = other1;
     } else {
         x_diff_vert = other2;
-    }*/
+    }
 
     // The dx/dy slope for drawing the left side of the triangle:
     float dsx_dsy_lo = (span.ref.x - x_lo_vert->x) / (double)(span.ref.y - x_lo_vert->y);
@@ -120,8 +120,8 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     */
     //float doz_dsx = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.x - x_diff_vert->x);
     //float doz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
-    float doz_dsx = (x_hi_vert->z - x_lo_vert->z) / (double)(x_hi_vert->x - x_lo_vert->x);
-    float doz_dsy = (span.ref.z - x_lo_vert->z) / (double)(span.ref.y - x_lo_vert->y);
+    float doz_dsx = (span.ref.z - x_diff_vert->z) / (double)(span.ref.x - x_diff_vert->x);
+    float doz_dsy = (span.ref.z - x_diff_vert->z) / (double)(span.ref.y - x_diff_vert->y);
     span.triangle = triangle;
 
     // Draw the spans to the screen, respecting the z-buffer.
@@ -183,24 +183,23 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         //double object_z = (b1 * span.ref.object.z) + (b2 * span.ref.object.z) + (b3 * span.ref.object.z);
                         //double u = (b1 * span.triangle->a.uv.u) + (b2 * span.triangle->b.uv.u) + (b3 * span.triangle->c.uv.u);
                         // TODO assert?
-                        u = MAX(0, MIN(1, u));
-                        int x_tex = u * span.triangle->material->w;
-                        //double v = (b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
-                        v = MAX(0, MIN(1, v));
-                        //printf("u, v = %f, %f\n", u, v);
-                        int y_tex = v * span.triangle->material->h;
-                        int tex_off = x_tex + (y_tex * span.triangle->material->w);
-                        (void)tex_off;
-                        texture[off].r = span.triangle->material->texture[tex_off].r;
-                        texture[off].g = span.triangle->material->texture[tex_off].g;
-                        texture[off].b = span.triangle->material->texture[tex_off].b;
+                        if (span.triangle->material != NULL) {
+                            u = MAX(0, MIN(1, u));
+                            int x_tex = u * span.triangle->material->w;
+                            //double v = (b1 * span.triangle->a.uv.v) + (b2 * span.triangle->b.uv.v) + (b3 * span.triangle->c.uv.v);
+                            v = MAX(0, MIN(1, v));
+                            //printf("u, v = %f, %f\n", u, v);
+                            int y_tex = v * span.triangle->material->h;
+                            int tex_off = x_tex + (y_tex * span.triangle->material->w);
+                            texture[off].r = span.triangle->material->texture[tex_off].r;
+                            texture[off].g = span.triangle->material->texture[tex_off].g;
+                            texture[off].b = span.triangle->material->texture[tex_off].b;
                         
-
-                // For debugging purposes, give every triangle a different
-                // color.
-                /*texture[off].r = (color_index * 13) % 0xff;
-                texture[off].g = (color_index * 101) % 0xff;
-                texture[off].b = (color_index * 211) % 0xff;*/
+                        } else {
+                            texture[off].r = (color_index * 13) % 0xff;
+                            texture[off].g = (color_index * 101) % 0xff;
+                            texture[off].b = (color_index * 211) % 0xff;
+                        }
 
                         render_stats.pixels_drawn++;
                         render_frame_stats.pixels_drawn++;
