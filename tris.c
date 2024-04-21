@@ -128,13 +128,41 @@ int main(void) {
             }
         }
 
-        // Rotate the camera around the origin.
-        double now = render_stats.frames_drawn / 10.;
-        double theta = 0.25 * now;
-        double scale = 3 + (.5 * cos(2 * now));
-        camera_pos.x = 2. * cos(theta) * scale;
-        camera_pos.y = 2. * sin(theta) * scale;
-        camera_pos.z = 2. * sin(theta) * scale;
+        // TODO clear the screen: shouldn't have to do this out of band
+        for (int y = 0; y < FAKESCREEN_H; y++) {
+            for (int x = 0; x < FAKESCREEN_W; x++) {
+                int off = (y * FAKESCREEN_W) + x;
+                depth_buffer[off] = DBL_MAX;
+                texture[off].r = texture[off].g = texture[off].b = 0;
+            }
+        }
+
+        enum {
+            DO_WHAT_COW,
+            DO_WHAT_CUBE,
+        } do_what;
+        if (((int)time_now() / 5) % 2 == 0) {
+            do_what = DO_WHAT_CUBE;
+        } else {
+            do_what = DO_WHAT_COW;
+        }
+
+        if (do_what == DO_WHAT_COW) {
+            // Rotate the camera around the origin.
+            double now = render_stats.frames_drawn / 10.;
+            double theta = 0.25 * now;
+            double scale = 3 + (.5 * cos(2 * now));
+            camera_pos.x = 2. * cos(theta) * scale;
+            camera_pos.y = 2. * sin(theta) * scale;
+            camera_pos.z = 2. * sin(theta) * scale;
+        } else {
+            double now = time_now() * 2; //render_stats.frames_drawn / 10.;
+            double theta = 0.25 * now;
+            double scale = 4; //3 + (.5 * cos(2 * now));
+            camera_pos.x = 2. * cos(theta) * scale;
+            camera_pos.y = 0; //2. * sin(theta) * scale;
+            camera_pos.z = 2. * sin(theta) * scale;
+        }
 
         // Point the camera at the origin.
         camera_fwd.x = 0 - camera_pos.x;
@@ -149,17 +177,9 @@ int main(void) {
         camera_up.z = 0;
         v3_cross(&camera_fwd, &camera_up, &camera_left);
 
-        // TODO clear the screen: shouldn't have to do this out of band
-        for (int y = 0; y < FAKESCREEN_H; y++) {
-            for (int x = 0; x < FAKESCREEN_W; x++) {
-                int off = (y * FAKESCREEN_W) + x;
-                depth_buffer[off] = DBL_MAX;
-                texture[off].r = texture[off].g = texture[off].b = 0;
-            }
-        }
 
         render_begin_frame();
-        if (render_stats.frames_drawn < 200) {
+        if (do_what == DO_WHAT_CUBE) {
             v3_t coords[] = {
                 { .x = -2, .y = -2, .z = -2 },
                 { .x =  2, .y = -2, .z = -2 },

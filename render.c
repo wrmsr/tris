@@ -118,10 +118,10 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     float doy_dsx = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.x - x_diff_vert->x);
     float doy_dsy = (span.ref.object.y - x_diff_vert->object.y) / (double)(span.ref.y - x_diff_vert->y);
     */
-    //float doz_dsx = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.x - x_diff_vert->x);
-    //float doz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
-    float doz_dsx = (span.ref.z - x_diff_vert->z) / (double)(span.ref.x - x_diff_vert->x);
-    float doz_dsy = (span.ref.z - x_diff_vert->z) / (double)(span.ref.y - x_diff_vert->y);
+    //float dsz_dsx = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.x - x_diff_vert->x);
+    //float dsz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
+    float dsz_dsx = (span.ref.z - x_diff_vert->z) / (double)(span.ref.x - x_diff_vert->x);
+    float dsz_dsy = (span.ref.z - x_diff_vert->z) / (double)(span.ref.y - x_diff_vert->y);
     span.triangle = triangle;
 
     // Draw the spans to the screen, respecting the z-buffer.
@@ -137,12 +137,12 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                     x_fill_hi = FAKESCREEN_W - 1;
                 // This is a lot faster than doing the barymetric transform
                 // now, given there's a chance this pixel gets z-rejected.
-                double screen_z_lo = span.ref.z + (doz_dsy * (y - span.ref.y));
+                double screen_z_lo = span.ref.z + (dsz_dsy * (y - span.ref.y));
                 for (int x = x_fill_lo; x <= x_fill_hi; x++) {
 
                     // Do a z-check before we draw the pixel.
                     int off = (y * FAKESCREEN_W) + x;
-                    double screen_z = screen_z_lo + (doz_dsx * (x - x_fill_lo));
+                    double screen_z = screen_z_lo + (dsz_dsx * (x - x_fill_lo));
                     if ((screen_z < depth_buffer[off]) && (screen_z >= 0)) {
                         depth_buffer[off] = screen_z;
                         if (screen_z > max_z) {
@@ -171,8 +171,8 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         printf("dox_dsy = %f\n", dox_dsy);
                         printf("doy_dsx = %f\n", doy_dsx);
                         printf("doy_dsy = %f\n", doy_dsy);
-                        printf("doz_dsx = %f\n", doz_dsx);
-                        printf("doz_dsy = %f\n", doz_dsy);
+                        printf("dsz_dsx = %f\n", dsz_dsx);
+                        printf("dsz_dsy = %f\n", dsz_dsy);
                         printf("triangle in screen: (%i, %i) (%i, %i) (%i, %i)\n",
                             x_lo_vert->x, x_lo_vert->y, hi_or_lo->x, hi_or_lo->y, x_hi_vert->x, x_hi_vert->y);
                         printf("current screen x, y = %i, %i\n", x, y);
