@@ -141,7 +141,7 @@ int main(void) {
             DO_WHAT_COW,
             DO_WHAT_CUBE,
         } do_what;
-        if (((int)time_now() / 5) % 2 == 0) {
+        if (1) { //((int)time_now() / 5) % 2 == 0) {
             do_what = DO_WHAT_CUBE;
         } else {
             do_what = DO_WHAT_COW;
@@ -158,9 +158,10 @@ int main(void) {
         } else {
             double now = time_now() * 2; //render_stats.frames_drawn / 10.;
             double theta = 0.25 * now;
-            double scale = 4; //3 + (.5 * cos(2 * now));
+            double scale = 4;
+            (void)theta; (void)scale;
             camera_pos.x = 2. * cos(theta) * scale;
-            camera_pos.y = 0; //2. * sin(theta) * scale;
+            camera_pos.y = 0;
             camera_pos.z = 2. * sin(theta) * scale;
         }
 
@@ -173,10 +174,12 @@ int main(void) {
         camera_fwd.y = camera_fwd.y / l;
         camera_fwd.z = camera_fwd.z / l;
         camera_up.x = 0;
-        camera_up.y = 1;
+        camera_up.y = -1;
         camera_up.z = 0;
+        //camera_left.x = -1;
+        //camera_left.y = 0;
+        //camera_left.z = 0;
         v3_cross(&camera_fwd, &camera_up, &camera_left);
-
 
         render_begin_frame();
         if (do_what == DO_WHAT_CUBE) {
@@ -185,10 +188,6 @@ int main(void) {
                 { .x =  2, .y = -2, .z = -2 },
                 { .x =  2, .y =  2, .z = -2 },
                 { .x = -2, .y =  2, .z = -2 },
-                { .x = -2, .y = -2, .z =  2 },
-                { .x =  2, .y = -2, .z =  2 },
-                { .x =  2, .y =  2, .z =  2 },
-                { .x = -2, .y =  2, .z =  2 },
             };
             triangle_t triangles[] = {
                 {
@@ -196,10 +195,10 @@ int main(void) {
                     .b = { .xyz = coords[1], .uv = { 1, 0 } },
                     .c = { .xyz = coords[0], .uv = { 0, 1 } },
                     .material = &material
-                }/*, {
-                    .a = { .xyz = coords[0], .uv = { 0, 0 } },
-                    .b = { .xyz = coords[3], .uv = { 0, 1 } },
-                    .c = { .xyz = coords[2], .uv = { 1, 0 } },
+                },/* {
+                    .a = { .xyz = coords[0], .uv = { 0, 1 } },
+                    .b = { .xyz = coords[3], .uv = { 1, 1 } },
+                    .c = { .xyz = coords[2], .uv = { 0, 0 } },
                     .material = &material
                 },*/
                 /*

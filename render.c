@@ -225,7 +225,9 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
     v3_sub(&(triangle->abc[0].xyz), &(triangle->abc[2].xyz), &v2);
     v3_t normal;
     v3_cross(&v2, &v1, &normal);
-    if (v3_dot(camera_fwd, &normal) < 0) {
+    v3_t cam_to_triangle;
+    v3_sub(&(triangle->abc[0].xyz), camera_pos, &cam_to_triangle);
+    if (v3_dot(&cam_to_triangle, &normal) < 0) {
         render_frame_stats.n_skipped_triangles++;
         render_frame_stats.n_skipped_triangles_by_backface_cull++;
         return;
@@ -405,7 +407,13 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
         render_frame_stats.num_onespan_triangles++;
     }
 
-    // If there is both a hi and lo vertex, then we need to draw two spans.
+    // If there is both a hi and lo vertex, then we need to draw two spans:
+    //       *
+    //     * *
+    //   *   *
+    // *-----*
+    //    *  *
+    //       *
     if ((hi != NULL) && (lo != NULL)) {
         // First, we need to find the vertex ('mid') which isn't the hi or lo
         // vertex.
