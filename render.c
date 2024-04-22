@@ -68,7 +68,7 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
 extern double *depth_buffer;
 extern gl_rgb_t *texture;
 
-void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, triangle_t *triangle) {
+void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, screen_vertex_t *hi, screen_vertex_t *lo, screen_triangle_t *screen_triangle) {
     render_frame_stats.num_spans++;
     ASSERT((hi == NULL) != (lo == NULL));
     screen_vertex_t *hi_or_lo = (hi != NULL ? hi : lo);
@@ -122,7 +122,7 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
     //float dsz_dsy = (span.ref.object.z - x_diff_vert->object.z) / (double)(span.ref.y - x_diff_vert->y);
     float dsz_dsx = (span.ref.z - x_diff_vert->z) / (double)(span.ref.x - x_diff_vert->x);
     float dsz_dsy = (span.ref.z - x_diff_vert->z) / (double)(span.ref.y - x_diff_vert->y);
-    span.triangle = triangle;
+    span.triangle = screen_triangle->parent;
 
     // Draw the spans to the screen, respecting the z-buffer.
     double min_z = DBL_MAX;
@@ -153,12 +153,12 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                         }
                         v3_t p = { .x = x, .y = y, .z = 0 };
                         double b1, b2, b3;
-                        triangle_t screen_triangle = {
-                            .a = { .xyz = {.x = x_lo_vert->x, .y = x_lo_vert->y, .z = 0} },
-                            .b = { .xyz = {.x = x_hi_vert->x, .y = x_hi_vert->y, .z = 0} },
-                            .c = { .xyz = {.x = hi_or_lo->x, .y = hi_or_lo->y, .z = 0} },
+                        triangle_t triangle = {
+                            .a = { .xyz = {.x = screen_triangle->v[0].x, .y = screen_triangle->v[0].y, .z = screen_triangle->v[0].z} },
+                            .b = { .xyz = {.x = screen_triangle->v[1].x, .y = screen_triangle->v[1].y, .z = screen_triangle->v[1].z} },
+                            .c = { .xyz = {.x = screen_triangle->v[2].x, .y = screen_triangle->v[2].y, .z = screen_triangle->v[2].z} },
                         };
-                        barycentric(&p, &screen_triangle, &b1, &b2, &b3);
+                        barycentric(&p, &triangle, &b1, &b2, &b3);
                         //double object_x = (b1 * span.ref.object.x) + (b2 * span.ref.object.y) + (b3 * span.ref.object.z);
                     //double object_y = (b1 * span.ref.object.y) + (b2 * span.ref.object.y) + (b3 * span.ref.object.y);
                     //double screen_z = (b1 * x_lo_vert->z) + (b2 * x_hi_vert->z) + (b3 * hi_or_lo->z);
@@ -400,9 +400,9 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
     //      *
     if ((hi == NULL) != (lo == NULL)) {
         if (hi != NULL) {
-            draw_span(a, b, c, hi, NULL, screen_triangle->parent);
+            draw_span(a, b, c, hi, NULL, screen_triangle);
         } else if (lo != NULL) {
-            draw_span(a, b, c, NULL, lo, screen_triangle->parent);
+            draw_span(a, b, c, NULL, lo, screen_triangle);
         } else ASSERT(0);
         render_frame_stats.num_onespan_triangles++;
     }
@@ -430,8 +430,8 @@ void render_draw_screen_triangle(screen_triangle_t *screen_triangle) {
             .z = lo->z + (((hi->z - lo->z) / (double)(hi->y - lo->y)) * (mid->y - lo->y))
         };
         // Create two spans!
-        draw_span(hi, mid, &split, hi, NULL, screen_triangle->parent);
-        draw_span(lo, mid, &split, NULL, lo, screen_triangle->parent);
+        draw_span(hi, mid, &split, hi, NULL, screen_triangle);
+        draw_span(lo, mid, &split, NULL, lo, screen_triangle);
         render_frame_stats.num_twospan_triangles++;
     }
 }
