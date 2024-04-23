@@ -130,6 +130,9 @@ int main(void) {
                     break;
                 }
                 break;
+            case SDL_QUIT:
+                do_quit = 1;
+                break;
             }
         }
 
