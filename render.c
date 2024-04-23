@@ -232,17 +232,19 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
 
     // Do backface culling: a triangle facing the wrong way from the camera
     // (according to its normal) doesn't get rendered.
-    v3_t v1, v2;
-    v3_sub(&(triangle->abc[0].xyz), &(triangle->abc[1].xyz), &v1);
-    v3_sub(&(triangle->abc[0].xyz), &(triangle->abc[2].xyz), &v2);
-    v3_t normal;
-    v3_cross(&v2, &v1, &normal);
-    v3_t cam_to_triangle;
-    v3_sub(&(triangle->abc[0].xyz), camera_pos, &cam_to_triangle);
-    if (v3_dot(&cam_to_triangle, &normal) < 0) {
-        render_frame_stats.n_skipped_triangles++;
-        render_frame_stats.n_skipped_triangles_by_backface_cull++;
-        return;
+    if (!triangle->two_faced) {
+        v3_t v1, v2;
+        v3_sub(&(triangle->abc[0].xyz), &(triangle->abc[1].xyz), &v1);
+        v3_sub(&(triangle->abc[0].xyz), &(triangle->abc[2].xyz), &v2);
+        v3_t normal;
+        v3_cross(&v2, &v1, &normal);
+        v3_t cam_to_triangle;
+        v3_sub(&(triangle->abc[0].xyz), camera_pos, &cam_to_triangle);
+        if (v3_dot(&cam_to_triangle, &normal) < 0) {
+            render_frame_stats.n_skipped_triangles++;
+            render_frame_stats.n_skipped_triangles_by_backface_cull++;
+            return;
+        }
     }
 
     // Turn each arbitrary triangle into triangles suitable for rendering, by
@@ -295,9 +297,11 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
         // order, we know that we can form two triangles (v1, v2, u2)
         // and (u2, u1, v1).
         n_clipped_triangles = 2;
+        memcpy(&clipped_triangles[0], triangle, sizeof(triangle_t));
         memcpy(&(clipped_triangles[0].abc[0].xyz), v1, sizeof(v3_t));
         memcpy(&(clipped_triangles[0].abc[1].xyz), v2, sizeof(v3_t));
         memcpy(&(clipped_triangles[0].abc[2].xyz), &u2, sizeof(v3_t));
+        memcpy(&clipped_triangles[1], triangle, sizeof(triangle_t));
         memcpy(&(clipped_triangles[1].abc[0].xyz), &u2, sizeof(v3_t));
         memcpy(&(clipped_triangles[1].abc[1].xyz), &u1, sizeof(v3_t));
         memcpy(&(clipped_triangles[1].abc[2].xyz), v1, sizeof(v3_t));
@@ -319,6 +323,7 @@ void render_draw_triangle(v3_t *camera_pos, v3_t *camera_fwd, v3_t *camera_up, v
         // Ditto, see above.
         ASSERT(v3_ray_plane(&screen_center, camera_fwd, v2, &v2_to_v3, &u2));
         n_clipped_triangles = 1;
+        memcpy(&clipped_triangles[0], triangle, sizeof(triangle_t));
         memcpy(&(clipped_triangles[0].abc[0].xyz), v3, sizeof(v3_t));
         memcpy(&(clipped_triangles[0].abc[1].xyz), &u1, sizeof(v3_t));
         memcpy(&(clipped_triangles[0].abc[2].xyz), &u2, sizeof(v3_t));

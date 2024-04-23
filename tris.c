@@ -82,10 +82,15 @@ int main(void) {
     for (int y = 0; y < 64; y++) {
         for (int x = 0; x < 64; x++) {
             rgba_t *rgba = &(material.texture[(y * 64) + x]);
-            rgba->r = ((x / 16) % 2) * 255;
-            rgba->g = 0;
-            rgba->b = ((y / 16) % 2) * 255;
-            rgba->a = 0;
+            if ((x < 4) || (x > 60) || (y < 4) || (y > 60)) {
+                rgba->r = rgba->g = rgba->b = 255;
+                rgba->a = 0;
+            } else {
+                rgba->r = ((x / 16) % 2) * 255;
+                rgba->g = 0;
+                rgba->b = ((y / 16) % 2) * 255;
+                rgba->a = 0;
+            }
         }
     }
 
@@ -188,25 +193,45 @@ int main(void) {
                 { .x =  2, .y = -2, .z = -2 },
                 { .x =  2, .y =  2, .z = -2 },
                 { .x = -2, .y =  2, .z = -2 },
+                { .x = -2, .y = -2, .z = 2 },
+                { .x =  2, .y = -2, .z = 2 },
+                { .x =  2, .y =  2, .z = 2 },
+                { .x = -2, .y =  2, .z = 2 },
             };
             triangle_t triangles[] = {
                 {
                     .a = { .xyz = { .x = 3, .y = 3, .z = -2 }},
                     .b = { .xyz = { .x = 3, .y = 4, .z = -2 }},
                     .c = { .xyz = { .x = 4, .y = 3, .z = -2 }},
-                    .material = NULL
+                    .material = NULL,
+                    .two_faced = true,
                 },
                 {
                     .a = { .xyz = coords[2], .uv = { 0, 1 } },
                     .b = { .xyz = coords[1], .uv = { 0, 0 } },
                     .c = { .xyz = coords[0], .uv = { 1, 0 } },
-                    .material = &material
+                    .material = &material,
+                    .two_faced = true,
                 }, {
                     .a = { .xyz = coords[0], .uv = { 1, 0 } },
                     .b = { .xyz = coords[3], .uv = { 1, 1 } },
                     .c = { .xyz = coords[2], .uv = { 0, 1 } },
-                    .material = &material
-                },
+                    .material = &material,
+                    .two_faced = true,
+                }, {
+.a = { .xyz = coords[4], .uv = { 1, 0 } },
+.b = { .xyz = coords[5], .uv = { 0, 0 } },
+                .c = { .xyz = coords[6], .uv = { 0, 1 } },
+.material = &material,
+                    .two_faced = true,
+}, {
+.a = { .xyz = coords[6], .uv = { 0, 1 } },
+.b = { .xyz = coords[7], .uv = { 1, 1 } },
+.c = { .xyz = coords[4], .uv = { 1, 0 } },
+.material = &material,
+                    .two_faced = true,
+},
+
                 /*
                 { .a = coords[1], .b = coords[2], .c = coords[6], .material = &material },
                 { .a = coords[6], .b = coords[5], .c = coords[1], .material = &material },
@@ -231,6 +256,7 @@ int main(void) {
                     triangle.abc[j].u = 0;
                     triangle.abc[j].v = 0;
                     triangle.material = NULL;
+                    triangle.two_faced = false;
                 }
                 render_draw_triangle(&camera_pos, &camera_fwd, &camera_up, &camera_left, &triangle);
             }

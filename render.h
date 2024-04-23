@@ -1,6 +1,7 @@
 #ifndef __RENDER_H__
 #define __RENDER_H__
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "vector.h"
@@ -61,6 +62,7 @@ typedef struct {
         };
     };
     material_t *material;
+    bool two_faced;
 } triangle_t;
 
 // Triangles in screen space, the visible area of which is (0, 0) (screen
