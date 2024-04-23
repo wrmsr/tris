@@ -179,7 +179,7 @@ int main(void) {
         //camera_left.x = -1;
         //camera_left.y = 0;
         //camera_left.z = 0;
-        v3_cross(&camera_fwd, &camera_up, &camera_left);
+        v3_cross(&camera_up, &camera_fwd, &camera_left);
 
         render_begin_frame();
         if (do_what == DO_WHAT_CUBE) {
@@ -191,16 +191,22 @@ int main(void) {
             };
             triangle_t triangles[] = {
                 {
-                    .a = { .xyz = coords[2], .uv = { 0, 0 } },
-                    .b = { .xyz = coords[1], .uv = { 1, 0 } },
-                    .c = { .xyz = coords[0], .uv = { 0, 1 } },
+                    .a = { .xyz = { .x = 3, .y = 3, .z = -2 }},
+                    .b = { .xyz = { .x = 3, .y = 4, .z = -2 }},
+                    .c = { .xyz = { .x = 4, .y = 3, .z = -2 }},
+                    .material = NULL
+                },
+                {
+                    .a = { .xyz = coords[2], .uv = { 0, 1 } },
+                    .b = { .xyz = coords[1], .uv = { 0, 0 } },
+                    .c = { .xyz = coords[0], .uv = { 1, 0 } },
                     .material = &material
-                },/* {
-                    .a = { .xyz = coords[0], .uv = { 0, 1 } },
+                }, {
+                    .a = { .xyz = coords[0], .uv = { 1, 0 } },
                     .b = { .xyz = coords[3], .uv = { 1, 1 } },
-                    .c = { .xyz = coords[2], .uv = { 0, 0 } },
+                    .c = { .xyz = coords[2], .uv = { 0, 1 } },
                     .material = &material
-                },*/
+                },
                 /*
                 { .a = coords[1], .b = coords[2], .c = coords[6], .material = &material },
                 { .a = coords[6], .b = coords[5], .c = coords[1], .material = &material },

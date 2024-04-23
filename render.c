@@ -55,9 +55,9 @@ void barycentric(v3_t *p, triangle_t *triangle, double *b1, double *b2, double *
     double d20 = v3_dot(&v2, &v0);
     double d21 = v3_dot(&v2, &v1);
     double denom = (d00 * d11) - (d01 * d01);
-    *b1 = ((d11 * d20) - (d01 * d21)) / denom;
-    *b2 = ((d00 * d21) - (d01 * d20)) / denom;
-    *b3 = 1. - *b1 - *b2;
+    *b2 = ((d11 * d20) - (d01 * d21)) / denom;
+    *b3 = ((d00 * d21) - (d01 * d20)) / denom;
+    *b1 = 1. - *b2 - *b3;
     //printf("b1 = %f, b2 = %f, b3 = %f\n", *b1, *b2, *b3);
     //ASSERT((*b1 >= 0) && (*b1 <= 1));
     //ASSERT((*b2 >= 0) && (*b2 <= 1));
@@ -163,7 +163,19 @@ void draw_span(screen_vertex_t *a, screen_vertex_t *b, screen_vertex_t *c, scree
                     //double object_y = (b1 * span.ref.object.y) + (b2 * span.ref.object.y) + (b3 * span.ref.object.y);
                     //double screen_z = (b1 * x_lo_vert->z) + (b2 * x_hi_vert->z) + (b3 * hi_or_lo->z);
                     //printf("%f, %f, %f\n", span.triangle->a.u, span.triangle->b.u, b3 * span.triangle->c.u);
+                    
+                    /*printf("screen: %i, %i, %f ||| %i, %i, %f ||| %i, %i, %f\n",
+                        screen_triangle->v[0].x, screen_triangle->v[0].y, screen_triangle->v[0].z,
+                        screen_triangle->v[1].x, screen_triangle->v[1].y, screen_triangle->v[1].z,
+                        screen_triangle->v[2].x, screen_triangle->v[2].y, screen_triangle->v[2].z
+                    );
+                    printf("object: %f, %f, %f ||| %f, %f, %f ||| %f, %f, %f\n",
+                        span.triangle->a.xyz.x, span.triangle->a.xyz.y, span.triangle->a.xyz.z,
+                        span.triangle->b.xyz.x, span.triangle->b.xyz.y, span.triangle->b.xyz.z,
+                        span.triangle->c.xyz.x, span.triangle->c.xyz.y, span.triangle->c.xyz.z
+                    );*/
                     double u = (b1 * span.triangle->a.u) + (b2 * span.triangle->b.u) + (b3 * span.triangle->c.u);
+                    // span.triangle->a could be a different vertex than screen_triagnle->v[0] ..
                     //printf("%f, %f, %f\n", span.triangle->a.v, span.triangle->b.v, b3 * span.triangle->c.v);
                     double v = (b1 * span.triangle->a.v) + (b2 * span.triangle->b.v) + (b3 * span.triangle->c.v);
 
